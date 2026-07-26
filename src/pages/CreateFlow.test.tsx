@@ -67,7 +67,7 @@ describe("CreateFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "已完成，继续" }));
     expect(within(await screen.findByRole("status")).getByText("账号创建完成")).toBeInTheDocument();
     expect(serviceMocks.resumeFlow).toHaveBeenCalledWith("flow-test-1", undefined);
-    expect(onAccountCreated).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onAccountCreated).toHaveBeenCalledOnce());
   });
 
   it("manually refreshes a completed flow from the backend", async () => {
