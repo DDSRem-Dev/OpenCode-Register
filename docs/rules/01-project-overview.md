@@ -31,14 +31,14 @@ manual payment -> API key retrieval -> local account pool
 
 Any implementation that weakens these boundaries must be rejected.
 
-## 1.3 Development Phases
+## 1.3 Product Delivery
 
-The project follows Phase 1 through Phase 8 in `docs/architecture.md`. Before
-starting a phase:
+The product capabilities described in `docs/architecture.md` are implemented.
+When extending the product:
 
-1. Derive its explicit deliverables and evidence requirements.
-2. Verify that prerequisite phases actually work.
-3. Keep future-phase behavior clearly unimplemented or disabled.
+1. Derive explicit deliverables and evidence requirements.
+2. Verify that prerequisite capabilities actually work.
+3. Keep proposed behavior clearly unimplemented or disabled until delivered.
 4. Do not use mock values in production UI to imply completion.
 
 ## 1.4 System Components

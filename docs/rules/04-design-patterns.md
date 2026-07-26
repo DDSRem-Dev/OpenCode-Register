@@ -77,7 +77,7 @@ internal models.
 
 - Generic helpers, services, or interfaces with one caller and no framework
   requirement.
-- Prebuilt abstraction layers for future phases.
+- Prebuilt abstraction layers for speculative future work.
 - Global service locators or cross-layer import shortcuts.
 - Exceptions used for expected workflow states.
 - Raw dictionaries, JSON strings, or `Any` used as lasting module contracts.

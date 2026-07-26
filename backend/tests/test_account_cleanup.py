@@ -73,7 +73,7 @@ class FakeGitHubCleanupClient(GitHubCleanupClient):
 
 def _vault(tmp_path: Path) -> AccountVaultService:
     vault = AccountVaultService(tmp_path / "accounts.db")
-    password = SecretStr("phase seven cleanup master password")
+    password = SecretStr("account cleanup master password")
     vault.unlock(password, password)
     vault.add_account(
         AccountCreate(

@@ -338,14 +338,14 @@ async def test_github_cleanup_verifies_identity_and_submits_confirmed_deletion()
     验证 GitHub 清理只为完全匹配的身份提交删除和 sudo 密码
     """
 
-    page = FakeCleanupPage(authenticated_as="phase-seven-user")
+    page = FakeCleanupPage(authenticated_as="cleanup-user")
     cleanup = GitHubAccountCleanup(FakeCleanupSession(page))
 
-    result = await cleanup.start_cleanup("phase-seven-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
 
     assert result.status == GitHubCleanupPageStatus.DELETED
     assert page.filled[PASSWORD_SELECTOR] == "Fake-GitHub-Password!"
-    assert page.filled[DELETE_USERNAME_LABEL] == "phase-seven-user"
+    assert page.filled[DELETE_USERNAME_LABEL] == "cleanup-user"
     assert page.filled[DELETE_CONFIRMATION_LABEL] == DELETE_CONFIRMATION_TEXT
     assert page.filled[SUDO_PASSWORD_LABEL] == "Fake-GitHub-Password!"
     assert "Fake-GitHub-Password!" not in result.model_dump_json()
@@ -359,7 +359,7 @@ async def test_github_cleanup_rejects_mismatched_identity() -> None:
 
     cleanup = GitHubAccountCleanup(FakeCleanupSession(FakeCleanupPage(authenticated_as="other-user")))
 
-    result = await cleanup.start_cleanup("phase-seven-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
 
     assert result.status == GitHubCleanupPageStatus.ERROR
     assert result.error_code == "github_cleanup_identity_mismatch"
@@ -373,7 +373,7 @@ async def test_github_cleanup_preserves_manual_captcha_boundary() -> None:
 
     cleanup = GitHubAccountCleanup(FakeCleanupSession(FakeCleanupPage(has_captcha=True)))
 
-    result = await cleanup.start_cleanup("phase-seven-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
 
     assert result.status == GitHubCleanupPageStatus.MANUAL_REQUIRED
     assert result.manual_reason == ManualInterventionReason.CAPTCHA
@@ -385,10 +385,10 @@ async def test_github_cleanup_pauses_when_delete_control_is_not_unique() -> None
     验证删除入口缺失或重复时安全暂停且不猜测目标控件
     """
 
-    page = FakeCleanupPage(authenticated_as="phase-seven-user", delete_button_count=2)
+    page = FakeCleanupPage(authenticated_as="cleanup-user", delete_button_count=2)
     cleanup = GitHubAccountCleanup(FakeCleanupSession(page))
 
-    result = await cleanup.start_cleanup("phase-seven-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
 
     assert result.status == GitHubCleanupPageStatus.MANUAL_REQUIRED
     assert result.manual_reason == ManualInterventionReason.UNKNOWN_BLOCK
@@ -401,10 +401,10 @@ async def test_github_cleanup_only_accepts_profile_not_found_as_deleted() -> Non
     验证只有目标公开资料返回 404 才确认远端删除完成
     """
 
-    page = FakeCleanupPage(authenticated_as="phase-seven-user", sudo_invalid=True)
+    page = FakeCleanupPage(authenticated_as="cleanup-user", sudo_invalid=True)
     session = FakeCleanupSession(page)
     cleanup = GitHubAccountCleanup(session)
-    manual = await cleanup.start_cleanup("phase-seven-user", SecretStr("Fake-GitHub-Password!"))
+    manual = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
     assert manual.status == GitHubCleanupPageStatus.INVALID
 
     page.actor_login = None

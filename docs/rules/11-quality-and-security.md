@@ -124,8 +124,7 @@ fabrication, or logic intended to evade third-party protections.
   mitigation is approved.
 - Avoid `npm audit fix --force` or equivalent blind breaking upgrades; update
   intentionally and rerun the full gate.
-- Signed/notarized distribution work belongs to Phase 8 and must be verified on
-  its target platform.
+- Signed/notarized distribution work must be verified on its target platform.
 
 ## 11.9 Incident Response
 

@@ -26,7 +26,7 @@ async def test_flow_cancellation_disposes_mailbox_created_in_flight() -> None:
 
     assert cancel_result.status == FlowStepStatus.CANCELLED
     assert start_result.status == FlowStepStatus.CANCELLED
-    assert provider.disposed_email == "phase2@example.test"
+    assert provider.disposed_email == "flow@example.test"
     assert browser.closed is True
 
 
@@ -50,7 +50,7 @@ async def test_task_cancellation_waits_for_mailbox_creation_and_disposes_it() ->
         await start_task
     await flow.cancel()
 
-    assert provider.disposed_email == "phase2@example.test"
+    assert provider.disposed_email == "flow@example.test"
     assert browser.closed is True
 
 
@@ -88,5 +88,5 @@ async def test_task_cancellation_finishes_account_completion_atomically() -> Non
     snapshot = flow.snapshot()
     assert snapshot.status == FlowStatus.DONE
     assert snapshot.opencode_provider_name == "opencode-go2"
-    assert provider.disposed_email == "phase2@example.test"
+    assert provider.disposed_email == "flow@example.test"
     assert browser.closed is True

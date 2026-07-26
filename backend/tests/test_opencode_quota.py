@@ -128,7 +128,7 @@ class FakeQuotaPage:
         *,
         usage_values: Optional[List[str]] = None,
         authenticated_as: Optional[str] = None,
-        workspace_redirect: str = "wrk_phase7",
+        workspace_redirect: str = "wrk_quota",
         has_captcha: bool = False,
         login_invalid: bool = False,
         subscription_required: bool = False,
@@ -253,15 +253,15 @@ async def test_opencode_quota_browser_reads_monthly_usage_from_authenticated_das
     验证后台浏览器核对 GitHub 身份并固定读取第三个月度用量节点
     """
 
-    password = "Fake-Phase-Seven-GitHub-Password!"
+    password = "Fake-Quota-GitHub-Password!"
     page = FakeQuotaPage(usage_values=["21%", "82%", "43%"])
     browser = OpenCodeQuotaBrowser(FakeQuotaSession(page))
 
-    result = await browser.start_check("phase-seven-user", SecretStr(password), "wrk_phase7")
+    result = await browser.start_check("quota-user", SecretStr(password), "wrk_quota")
 
     assert result.status == OpenCodeQuotaPageStatus.UPDATED
     assert result.usage_percent == 43
-    assert page.actor_login == "phase-seven-user"
+    assert page.actor_login == "quota-user"
     assert password not in result.model_dump_json()
 
 
@@ -275,9 +275,9 @@ async def test_opencode_quota_browser_preserves_captcha_boundary() -> None:
     browser = OpenCodeQuotaBrowser(FakeQuotaSession(page))
 
     result = await browser.start_check(
-        "phase-seven-user",
-        SecretStr("Fake-Phase-Seven-GitHub-Password!"),
-        "wrk_phase7",
+        "quota-user",
+        SecretStr("Fake-Quota-GitHub-Password!"),
+        "wrk_quota",
     )
 
     assert result.status == OpenCodeQuotaPageStatus.MANUAL_REQUIRED
@@ -294,9 +294,9 @@ async def test_opencode_quota_browser_rejects_workspace_mismatch() -> None:
     browser = OpenCodeQuotaBrowser(FakeQuotaSession(page))
 
     result = await browser.start_check(
-        "phase-seven-user",
-        SecretStr("Fake-Phase-Seven-GitHub-Password!"),
-        "wrk_phase7",
+        "quota-user",
+        SecretStr("Fake-Quota-GitHub-Password!"),
+        "wrk_quota",
     )
 
     assert result.status == OpenCodeQuotaPageStatus.UNAVAILABLE
@@ -313,9 +313,9 @@ async def test_opencode_quota_browser_rejects_malformed_dashboard_values() -> No
     browser = OpenCodeQuotaBrowser(FakeQuotaSession(page))
 
     result = await browser.start_check(
-        "phase-seven-user",
-        SecretStr("Fake-Phase-Seven-GitHub-Password!"),
-        "wrk_phase7",
+        "quota-user",
+        SecretStr("Fake-Quota-GitHub-Password!"),
+        "wrk_quota",
     )
 
     assert result.status == OpenCodeQuotaPageStatus.UNAVAILABLE
@@ -332,9 +332,9 @@ async def test_opencode_quota_browser_detects_missing_subscription() -> None:
     browser = OpenCodeQuotaBrowser(FakeQuotaSession(page))
 
     result = await browser.start_check(
-        "phase-seven-user",
-        SecretStr("Fake-Phase-Seven-GitHub-Password!"),
-        "wrk_phase7",
+        "quota-user",
+        SecretStr("Fake-Quota-GitHub-Password!"),
+        "wrk_quota",
     )
 
     assert result.status == OpenCodeQuotaPageStatus.SUBSCRIPTION_REQUIRED

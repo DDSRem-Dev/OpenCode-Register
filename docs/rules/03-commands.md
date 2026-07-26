@@ -19,8 +19,8 @@ sidecar path exists while running the build script, so a fresh clone fails
 Rust host rejects zero-length sidecars and falls back to the development
 interpreter, so it never shadows a real backend.
 
-The explicit CloakBrowser install pre-downloads its browser binary for Phase 3
-GitHub registration. A first launch also downloads the binary automatically.
+The explicit CloakBrowser install pre-downloads its browser binary for GitHub
+registration. A first launch also downloads the binary automatically.
 CI tests use the browser boundary and do not open live GitHub registration.
 
 Cargo resolves Rust dependencies from `src-tauri/Cargo.lock` when a Cargo

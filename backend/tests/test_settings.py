@@ -63,7 +63,7 @@ def test_quota_interval_uses_bounded_environment_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    验证 Phase 7 周期检查间隔从环境读取并拒绝过短值
+    验证周期检查间隔从环境读取并拒绝过短值
     """
 
     monkeypatch.setenv("OPENCODE_REGISTER_QUOTA_CHECK_INTERVAL_SECONDS", "900")

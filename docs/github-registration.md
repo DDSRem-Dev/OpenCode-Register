@@ -1,6 +1,6 @@
 # GitHub 注册与人工介入
 
-Phase 3 在 Python 后端提供可暂停的 GitHub 注册流程，并由 React 工作台显示权威流程状态。
+Python 后端提供可暂停的 GitHub 注册流程，并由 React 工作台显示权威流程状态。
 真实注册只在用户主动创建流程后通过可见 Chromium 窗口运行；自动化测试使用 fake browser，
 不会访问 GitHub 或创建账号。
 
@@ -9,7 +9,7 @@ Phase 3 在 Python 后端提供可暂停的 GitHub 注册流程，并由 React �
 - `backend/browser/cloakbrowser_client.py` 由服务级管理器共享一个 CloakBrowser Browser，并为每个流程创建隔离的
   Context 和 Page；关闭流程只释放其 Context，服务关闭时才释放共享 Browser。
 - `backend/browser/github_register.py` 独占 GitHub 主机校验、注册选择器和页面状态识别。
-- `backend/engine/flow.py` 管理从邮箱创建到 Phase 4 密钥采集的状态转换、人工暂停、恢复和取消。
+- `backend/engine/flow.py` 管理从邮箱创建到密钥采集的状态转换、人工暂停、恢复和取消。
 - `backend/engine/service.py` 跟踪全部后台任务，并在服务关闭时回收浏览器和邮箱资源。
 - `backend/api/websocket.py` 为流程和人工介入频道推送版本化事件及初始权威快照。
 - `src/pages/CreateFlow.tsx` 读取后端权威快照；`ManualIntervention` 只提交用户确认。
@@ -21,7 +21,7 @@ Phase 3 在 Python 后端提供可暂停的 GitHub 注册流程，并由 React �
 用户主动暂停采用安全点语义：邮箱创建与 GitHub 表单提交不会被重放；这些原子操作完成后再
 进入 `manual_verify`。邮箱验证码轮询可以立即中断，并从同一邮箱和同一浏览器页面恢复。
 
-## Phase 3 状态边界
+## 状态边界
 
 ```text
 idle -> creating_email -> github_register -> github_email_verify -> opencode_login
@@ -30,7 +30,7 @@ idle -> creating_email -> github_register -> github_email_verify -> opencode_log
 活动状态均可进入 cancelled
 ```
 
-`opencode_login` 是 Phase 3 到 Phase 4 的交接状态，当前实现会继续执行 OpenCode OAuth。后续状态与
+`opencode_login` 是 GitHub 注册到 OpenCode 接入的交接状态，当前实现会继续执行 OpenCode OAuth。后续状态与
 真实页面契约见 [opencode-go.md](opencode-go.md)。
 
 ## 本地 API
@@ -41,7 +41,7 @@ idle -> creating_email -> github_register -> github_email_verify -> opencode_log
 | `GET` | `/api/flow/{flow_id}` | 返回当前权威 `FlowSession` 快照 |
 | `GET` | `/api/flow/{flow_id}/screenshot/{screenshot_id}` | 启用截图后读取当前流程拥有的已遮罩 PNG；响应禁止缓存 |
 | `POST` | `/api/flow/{flow_id}/resume` | 恢复等待人工处理的流程 |
-| `POST` | `/api/flow/{flow_id}/manual-input` | 接受人工确认；仅在 Phase 4 自动复制失败时可携带格式受限的 `api_key` |
+| `POST` | `/api/flow/{flow_id}/manual-input` | 接受人工确认；仅在 API Key 自动复制失败时可携带格式受限的 `api_key` |
 | `POST` | `/api/flow/{flow_id}/pause` | 请求流程在不会重复外部副作用的安全点暂停 |
 | `POST` | `/api/flow/{flow_id}/cancel` | 取消流程并释放浏览器和临时邮箱 |
 
@@ -67,7 +67,7 @@ iframe、canvas、挑战控件、密钥单元格，以及当前流程已知的�
 符号链接和非 PNG；响应使用 `Cache-Control: no-store`。流程恢复、取消、失败或完成时立即删除该流程截图，
 启动和写入时也会清理过期或超量文件。
 
-Phase 3 的人工确认接口不接收验证码、密码或页面原文。不存在的流程返回
+人工确认接口不接收验证码、密码或页面原文。不存在的流程返回
 `flow_not_found`，非法状态返回 `flow_state_conflict`，响应遵循统一错误信封。
 
 ## CloakBrowser 边界

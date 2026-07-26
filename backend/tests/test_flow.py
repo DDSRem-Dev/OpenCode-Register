@@ -67,7 +67,7 @@ class FakeEmailProvider(EmailProvider):
             self.create_started.set()
         if self.create_gate is not None:
             await self.create_gate.wait()
-        return "phase2@example.test"
+        return "flow@example.test"
 
     async def wait_for_code(self, email: str, timeout: int) -> str:
         """
@@ -311,9 +311,9 @@ def create_test_flow(
 
 
 @pytest.mark.anyio
-async def test_flow_completes_phase_four_without_exposing_api_key() -> None:
+async def test_flow_completes_account_creation_without_exposing_api_key() -> None:
     """
-    验证流程完成 Phase 4 且公开快照不包含 API Key
+    验证流程完成账号创建且公开快照不包含 API Key
     """
 
     browser = FakeGitHubRegistrationClient()
@@ -329,8 +329,8 @@ async def test_flow_completes_phase_four_without_exposing_api_key() -> None:
     assert result.session.opencode_provider_name == "opencode-go"
     assert result.session.api_key_captured is True
     assert result.session.email_provider == "fake"
-    assert result.session.temp_email == "phase2@example.test"
-    assert browser.started_email == "phase2@example.test"
+    assert result.session.temp_email == "flow@example.test"
+    assert browser.started_email == "flow@example.test"
     assert browser.started_username == result.session.github_username
     assert browser.started_password is not None
     assert "password" not in result.session.model_dump()
@@ -594,4 +594,4 @@ async def test_flow_falls_back_to_next_provider() -> None:
     assert pending.session.status == FlowStatus.PENDING_PAYMENT
     assert result.status == FlowStepStatus.DONE
     assert result.session.email_provider == "fake"
-    assert result.session.temp_email == "phase2@example.test"
+    assert result.session.temp_email == "flow@example.test"

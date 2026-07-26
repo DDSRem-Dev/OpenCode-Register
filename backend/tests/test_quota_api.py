@@ -16,7 +16,7 @@ def _vault(tmp_path: Path, *, unlock: bool = True) -> AccountVaultService:
     vault = AccountVaultService(tmp_path / "accounts.db")
     if not unlock:
         return vault
-    password = SecretStr("phase seven API master password")
+    password = SecretStr("quota API master password")
     vault.unlock(password, password)
     vault.add_account(
         AccountCreate(

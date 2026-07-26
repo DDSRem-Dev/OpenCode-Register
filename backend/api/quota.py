@@ -32,7 +32,7 @@ def create_quota_router(
     quota_service: QuotaCheckService,
 ) -> APIRouter:
     """
-    创建 Phase 7 额度与状态路由
+    创建额度与状态路由
 
     :param quota_service (QuotaCheckService): 额度检查业务服务
 

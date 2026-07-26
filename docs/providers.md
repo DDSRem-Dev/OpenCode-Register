@@ -1,6 +1,6 @@
 # DuckMail 邮箱 Provider
 
-Phase 2 在 Python 后端提供统一的异步邮箱接口。工作流只依赖
+Python 后端提供统一的异步邮箱接口。工作流只依赖
 `backend/providers/base.py` 中的 `EmailProvider`，DuckMail 响应、令牌和协议差异不会离开
 `providers/` 边界。
 

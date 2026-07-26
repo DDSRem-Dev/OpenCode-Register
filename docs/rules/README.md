@@ -8,7 +8,7 @@ library defines how contributors implement, validate, review, and release it.
 
 | No. | Document | Scope |
 | --- | --- | --- |
-| 01 | `01-project-overview.md` | Goals, boundaries, phases, and shared terms |
+| 01 | `01-project-overview.md` | Goals, boundaries, delivery, and shared terms |
 | 02 | `02-tech-stack.md` | Toolchain, dependency ownership, and version policy |
 | 03 | `03-commands.md` | Authoritative development and verification commands |
 | 04 | `04-design-patterns.md` | Allowed patterns and their trigger conditions |

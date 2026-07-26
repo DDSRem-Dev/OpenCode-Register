@@ -21,7 +21,7 @@ const manualSession = {
   flow_id: "flow-test-1",
   status: "manual_verify",
   email_provider: "duckmail",
-  temp_email: "phase3@example.test",
+  temp_email: "flow@example.test",
   github_username: "learner-test",
   account_id: null,
   opencode_workspace_id: null,
@@ -54,6 +54,12 @@ class FakeWebSocket {
 
   emitMessage(payload: unknown): void {
     this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(payload) }));
+  }
+}
+
+class ThrowingWebSocket {
+  constructor() {
+    throw new Error("blocked by content security policy");
   }
 }
 
@@ -294,6 +300,16 @@ describe("fetchHealth", () => {
     });
 
     expect(onError).toHaveBeenCalledWith("流程事件标识不一致");
+    unsubscribe();
+  });
+
+  it("reports a synchronous WebSocket connection failure without throwing", () => {
+    vi.stubGlobal("WebSocket", ThrowingWebSocket);
+    const onError = vi.fn();
+
+    const unsubscribe = subscribeFlow("flow-test-1", vi.fn(), onError);
+
+    expect(onError).toHaveBeenCalledWith("无法连接流程事件");
     unsubscribe();
   });
 });

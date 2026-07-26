@@ -225,7 +225,7 @@ OpenCode-Register/
 
 - **Dashboard**：展示完整与未完成账号、状态（active / exhausted / invalid / pending_setup / pending_payment / cancelled）、当前号池指针和导出按钮。
 - **CreateFlow**：新建账号向导，显示权威流程状态和可选的已遮罩截图，弹出人工介入面板。
-- **Settings**：完整产品中的配置页面；Phase 1–7 通过环境变量配置路径，导出加密包位于 Dashboard。
+- **Settings**：配置自动写入开关并应用待处理账号；导出加密包位于 Dashboard。
 - **ManualIntervention**：流程暂停时显示步骤说明、可选的已遮罩截图和继续/中止控件；不接收验证码或密码。
 
 ### 7.2 后端（Python）
@@ -268,7 +268,7 @@ class EmailProvider(ABC):
 - 使用 `cryptography` 库对 `github_password`、`api_key` 等字段做字段级 AES-GCM 加密。
 - 密钥派生：用户主密码 → PBKDF2 → 加密密钥。
 
-#### 7.2.5 调度器 `scheduler/`（Phase 7）
+#### 7.2.5 调度器 `scheduler/`
 
 - `browser/opencode_quota`：使用独立无窗口会话登录精确账号，验证 workspace 并读取 Go 页面额度节点。
 - `engine/quota_service`：协调单账号和批量后台抓取、状态更新与持久化。
@@ -355,7 +355,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 | key | TEXT PK | 配置键 |
 | value | TEXT | 配置值 |
 
-#### account_cleanup_operations（Phase 7）
+#### account_cleanup_operations
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -378,7 +378,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 | `OPENCODE_REGISTER_AUTH_PATH` | `~/.local/share/opencode/auth.json` | OpenCode 首账号认证配置 |
 | `OPENCODE_REGISTER_CONFIG_PATH` | `~/.config/opencode/opencode.json` | OpenCode 二级 provider 配置 |
 | `OPENCODE_REGISTER_OMO_PATH` | `~/.config/opencode/oh-my-openagent.json` | OMO fallback 配置 |
-| `OPENCODE_REGISTER_QUOTA_CHECK_INTERVAL_SECONDS` | `3600` | Phase 7 周期额度检查间隔，允许 `60..86400` 秒 |
+| `OPENCODE_REGISTER_QUOTA_CHECK_INTERVAL_SECONDS` | `3600` | 周期额度检查间隔，允许 `60..86400` 秒 |
 | `OPENCODE_REGISTER_SCREENSHOTS_ENABLED` | `false` | 显式启用 GitHub 人工介入的已遮罩截图 |
 | `OPENCODE_REGISTER_SCREENSHOT_RETENTION_HOURS` | `24` | 活动流程截图最长留存小时数，允许 `1..168` |
 | `OPENCODE_REGISTER_SCREENSHOT_MAX_PER_FLOW` | `3` | 每个活动流程最多保留截图，允许 `1..10` |
@@ -389,7 +389,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 `opencode-config/opencode.json` 和 `opencode-config/oh-my-openagent.json`。沙盒模式只隔离本地文件，
 不会模拟或绕过 GitHub、DuckMail、OpenCode、人工验证与支付边界。
 
-`auto_switch_pool` 由 OMO 配置负责。Phase 7 调度只刷新额度且绝不主动删除账号；只有用户重新输入精确 GitHub 用户名后，
+`auto_switch_pool` 由 OMO 配置负责。后台调度只刷新额度且绝不主动删除账号；只有用户重新输入精确 GitHub 用户名后，
 清理流程才自动提交远端删除。安全挑战与未知页面不会自动处理。
 
 界面设置中的 `auto_configure_opencode` 与 `auto_configure_omo` 持久化在 SQLite `settings` 表，默认均为
@@ -401,8 +401,8 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 
 ### 9.1 REST API
 
-下表是完整产品的目标接口。Phase 1–7 已实现账号列表与创建、流程控制、账号库、导入导出、额度刷新与
-人工确认的失效清理；账号详情、号池手动控制与设置接口仍属于后续阶段，不得表现为可用接口。
+下表是完整产品的接口清单。当前公开接口包括账号列表与创建、流程控制、账号库、导入导出、额度刷新、
+人工确认的失效清理与设置；账号详情和号池手动控制不属于当前公开接口。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -438,7 +438,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 
 - `/ws/flow/{id}`：实时推送流程状态和截图标识，不传输图片数据或本地路径。
 - `/ws/manual/{id}`：人工介入请求。
-- `/ws/logs`：完整产品目标中的全局日志流，Phase 1–7 尚未实现。
+- `/ws/logs`：全局日志流，当前尚未实现。
 
 ## 10. 人工介入机制
 
@@ -680,18 +680,17 @@ scheduler:
   quota_check_interval: 3600  # 秒
 ```
 
-## 15. 开发阶段划分
+## 15. 已交付能力
 
-| 阶段 | 内容 | 优先级 |
-|------|------|--------|
-| Phase 1 | Tauri 壳 + Python 本地服务打通，前后端通信 | 高 |
-| Phase 2 | 临时邮箱 provider 集成 + 基础流程引擎 | 高 |
-| Phase 3 | GitHub 注册流程 + 人工介入面板 | 高 |
-| Phase 4 | OpenCode 登录 + 支付跳转 + API Key 读取 | 高 |
-| Phase 5 | SQLite 加密 + 号池配置写入（auth.json / opencode.json / oh-my-openagent.json） | 高 |
-| Phase 6 | 账号列表 UI + 导出/导入 | 中 |
-| Phase 7 | 后台仪表盘额度抓取 + 失效清理 | 中 |
-| Phase 8 | 二进制打包分发（PyInstaller + Tauri sidecar）+ 文档 | 中 |
+| 能力 | 内容 |
+|------|------|
+| 桌面运行时 | Tauri 壳、Python 本地服务与前后端通信 |
+| 注册流程 | 临时邮箱 provider、基础流程引擎、GitHub 注册与人工介入面板 |
+| OpenCode 接入 | OpenCode 登录、支付跳转与 API Key 读取 |
+| 本地存储 | SQLite 加密与号池配置写入（auth.json / opencode.json / oh-my-openagent.json） |
+| 账号管理 | 账号列表、导出与导入 |
+| 账号维护 | 后台仪表盘额度抓取与失效清理 |
+| 应用分发 | PyInstaller + Tauri sidecar 二进制打包与文档 |
 
 ## 16. 二进制分发方案
 
@@ -778,9 +777,9 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
 17. **OpenCode Go 模型来源**：官方 `/zen/go/v1/models` 决定当前可用 ID，Anomaly 的 Models.dev 结构化
     目录补齐显示名和模型级 AI SDK；两者不一致或失败时保留现有配置。
 
-### 17.1 Phase 4 OpenCode Go 现场契约
+### 17.1 OpenCode Go 现场契约
 
-2026-07-25 使用真实 Chrome 登录态完成只读与人工边界验证，Phase 4 以当前 OpenCode Go 页面为准：
+2026-07-25 使用真实 Chrome 登录态完成只读与人工边界验证，当前实现以 OpenCode Go 页面为准：
 
 - 登录从 `https://opencode.ai/auth` 开始，重定向到 `https://auth.opencode.ai/authorize`；GitHub
   provider 入口为 `a[href="/github/authorize"]`。
@@ -802,7 +801,7 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
 **边界影响**：浏览器层新增 `auth.opencode.ai` 允许主机和 OpenCode Go 页面状态识别；流程引擎仍把
 支付作为人工确认状态，前端与 API 不接收支付凭据。
 
-**迁移影响**：当前没有 Phase 4 持久化数据或客户端迁移；旧设计中的 `/login`、固定金额与
+**迁移影响**：当前没有相关持久化数据或客户端迁移；旧设计中的 `/login`、固定金额与
 密钥存在即付款完成的假设必须整体移除，不提供兼容分支。
 
 **测试影响**：自动测试使用 fake browser 覆盖 OAuth 回调、未知主机、待支付、支付确认、密钥复制
@@ -811,9 +810,9 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
 **回滚考虑**：仅当 OpenCode Go 再次改变公开页面契约，并通过新的受控现场验证确认后，才能成套
 更新登录、付款、密钥选择器、流程状态、文档和测试；不得单独恢复旧 URL 或旧价格。
 
-### 17.2 Phase 5 官方模型目录与 OMO 顺序决策
+### 17.2 官方模型目录与 OMO 顺序决策
 
-2026-07-25 核对 OpenCode Go 官方文档及其公开源码后，Phase 5 使用以下配置契约：
+2026-07-25 核对 OpenCode Go 官方文档及其公开源码后，当前实现使用以下配置契约：
 
 - 官方文档提供 `GET https://opencode.ai/zen/go/v1/models` 作为当前模型 ID 列表来源；Models.dev 的结构化
   元数据当前可能为模型声明 `@ai-sdk/openai-compatible`、`@ai-sdk/anthropic` 或 `@ai-sdk/openai`。
@@ -847,10 +846,10 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
 成套更新客户端模型、配置同步逻辑、架构文档和测试，不回退到抓取文档页面、按名称猜测或静默使用
 硬编码旧列表。
 
-### 17.3 Phase 7 额度与账号清理契约
+### 17.3 额度与账号清理契约
 
 - **原因**：OpenCode 没有稳定的公开额度 API，未公开 usage 路径也不能作为产品契约；GitHub 远端删除不可逆。
-  Phase 7 因此采用“后台认证浏览器读取已验证仪表盘 DOM”和“记录精确删除授权、自动提交、远端验证后本地清理”。
+  当前实现因此采用“后台认证浏览器读取已验证仪表盘 DOM”和“记录精确删除授权、自动提交、远端验证后本地清理”。
 - **边界影响**：额度子系统拥有独立 `headless=True` 浏览器，单账号、批量和周期刷新统一创建隔离上下文且不显示
   前台窗口。标准 GitHub OAuth 只在预期主机、路径和唯一启用的 `Authorize` 按钮上继续；CAPTCHA、设备验证和
   未知页面不自动处理，检查关闭会话并保留旧快照。额度检查只读取三个精确 `data-slot` 百分比，固定持久化第三个
@@ -882,7 +881,7 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
 - **未完成账号**：GitHub 注册成功是可清理身份的不可逆边界，必须立即加密写入独立
   `pending_accounts`；取得完整 OpenCode 数据后按自动配置设置执行文件写入，再以同一 UUID 原子提升。
   自动配置关闭不是失败，完整账号保存待应用状态；失败、取消和待付款状态仍可恢复清理。
-- **安全截图**：Phase 3 截图必须显式启用，只能捕获已遮罩的 GitHub 人工介入页面，并受私有权限、
+- **安全截图**：截图必须显式启用，只能捕获已遮罩的 GitHub 人工介入页面，并受私有权限、
   5 MB 单文件上限、时间留存、每流程数量和终态删除约束；事件只公开随机标识，付款页禁止截图。
 - **导入恢复**：账号包是跨机器恢复载体，不沿用源机器 provider 排位。目标机器按现有号池和自动配置
   开关重建配置或保存待应用状态，SQLite 批次与配置补偿共同保证失败不留下本次部分写入；pending 记录不进入号池。
@@ -958,11 +957,11 @@ https://opencode.ai/workspace/{workspace_id}/...
 
 ## 20. 当前交付边界
 
-Phase 1–7 的实现与上述关键细节已经确认并由自动化门禁覆盖。
+上述实现与关键细节已经确认并由自动化门禁覆盖。
 
-Phase 8 已交付：PyInstaller 冻结的 Python sidecar、Tauri `externalBin` 嵌入、Rust 侧三级启动
+二进制分发已交付：PyInstaller 冻结的 Python sidecar、Tauri `externalBin` 嵌入、Rust 侧三级启动
 解析、macOS 与 Windows 的发布矩阵与校验和产物。CloakBrowser Chromium 不再分发，由运行时下载，
 因此不存在待解决的再分发许可问题。
 
-Phase 8 仍未交付：**代码签名与 macOS 公证**。发布产物为未签名状态，
+当前仍未交付**代码签名与 macOS 公证**。发布产物为未签名状态，
 `docs/rules/12-collaboration-and-release.md` §12.8 中签名/公证两项仍未满足，不得表述为已完成。

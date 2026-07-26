@@ -134,7 +134,7 @@ class CreateAccountFlow:
 
     async def start(self) -> FlowStepResult:
         """
-        启动流程并执行到人工付款、人工处理或 Phase 4 完成
+        启动流程并执行到人工付款、人工处理或账号创建完成
 
         :return FlowStepResult: 当前阶段执行结果
 

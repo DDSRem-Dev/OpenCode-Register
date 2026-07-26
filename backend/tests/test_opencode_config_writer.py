@@ -312,7 +312,7 @@ def test_secondary_account_requires_primary_account(tmp_path: Path) -> None:
 
 def test_remove_secondary_account_preserves_unrelated_providers(tmp_path: Path) -> None:
     """
-    验证 Phase 7 二级账号清理只移除目标 provider
+    验证二级账号清理只移除目标 provider
     """
 
     paths = create_paths(tmp_path)
@@ -343,7 +343,7 @@ def test_remove_secondary_account_preserves_unrelated_providers(tmp_path: Path) 
 
 def test_replace_or_remove_primary_account_preserves_other_auth(tmp_path: Path) -> None:
     """
-    验证 Phase 7 首账号递补和末账号移除均保留其他认证配置
+    验证首账号递补和末账号移除均保留其他认证配置
     """
 
     paths = create_paths(tmp_path)

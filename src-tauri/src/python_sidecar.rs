@@ -11,6 +11,7 @@ use std::{
 const BACKEND_PORT: &str = "17891";
 const SANDBOX_DIRECTORY_ENV: &str = "OPENCODE_REGISTER_SANDBOX_DIR";
 const BACKEND_EXECUTABLE_ENV: &str = "OPENCODE_REGISTER_BACKEND_EXECUTABLE";
+const OWNER_PROCESS_ID_ENV: &str = "OPENCODE_REGISTER_OWNER_PID";
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -69,6 +70,7 @@ impl PythonSidecar {
         }
 
         let mut command = (self.command_factory)()?;
+        isolate_process_group(&mut command);
         let child = command
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -123,6 +125,74 @@ impl Drop for PythonSidecar {
     }
 }
 
+#[cfg(unix)]
+fn terminate_child(child: &mut Child, timeout: Duration) -> Result<(), String> {
+    let process_group_id = child.id() as libc::pid_t;
+    signal_process_group(
+        process_group_id,
+        libc::SIGTERM,
+        "failed to request backend shutdown",
+    )?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        let _ = child
+            .try_wait()
+            .map_err(|_| "failed to inspect backend process")?;
+        if !process_group_exists(process_group_id)? {
+            return Ok(());
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        thread::sleep(SHUTDOWN_POLL_INTERVAL.min(deadline - now));
+    }
+
+    signal_process_group(
+        process_group_id,
+        libc::SIGKILL,
+        "failed to force-stop backend process",
+    )?;
+    if child
+        .try_wait()
+        .map_err(|_| "failed to inspect backend process")?
+        .is_none()
+    {
+        child.wait().map_err(|_| "failed to reap backend process")?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn signal_process_group(
+    process_group_id: libc::pid_t,
+    signal: libc::c_int,
+    error_message: &str,
+) -> Result<(), String> {
+    // SAFETY: the negative ID targets only the dedicated process group created for this sidecar.
+    let result = unsafe { libc::kill(-process_group_id, signal) };
+    if result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(error_message.to_owned())
+    }
+}
+
+#[cfg(unix)]
+fn process_group_exists(process_group_id: libc::pid_t) -> Result<bool, String> {
+    // SAFETY: signal 0 checks the owned process group without delivering a signal.
+    let result = unsafe { libc::kill(-process_group_id, 0) };
+    if result == 0 {
+        return Ok(true);
+    }
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(libc::ESRCH) => Ok(false),
+        Some(libc::EPERM) => Ok(true),
+        _ => Err("failed to inspect backend process group".to_owned()),
+    }
+}
+
+#[cfg(not(unix))]
 fn terminate_child(child: &mut Child, timeout: Duration) -> Result<(), String> {
     if child
         .try_wait()
@@ -132,7 +202,9 @@ fn terminate_child(child: &mut Child, timeout: Duration) -> Result<(), String> {
         return Ok(());
     }
 
-    request_graceful_shutdown(child)?;
+    child
+        .kill()
+        .map_err(|_| "failed to request backend shutdown".to_owned())?;
     let deadline = Instant::now() + timeout;
     loop {
         if child
@@ -148,31 +220,19 @@ fn terminate_child(child: &mut Child, timeout: Duration) -> Result<(), String> {
         }
         thread::sleep(SHUTDOWN_POLL_INTERVAL.min(deadline - now));
     }
-
-    child
-        .kill()
-        .map_err(|_| "failed to force-stop backend process")?;
     child.wait().map_err(|_| "failed to reap backend process")?;
     Ok(())
 }
 
 #[cfg(unix)]
-fn request_graceful_shutdown(child: &Child) -> Result<(), String> {
-    // SAFETY: kill only receives the live child PID owned by this sidecar.
-    let result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-    if result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
-        Ok(())
-    } else {
-        Err("failed to request backend shutdown".to_owned())
-    }
+fn isolate_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
 }
 
 #[cfg(not(unix))]
-fn request_graceful_shutdown(child: &mut Child) -> Result<(), String> {
-    child
-        .kill()
-        .map_err(|_| "failed to request backend shutdown".to_owned())
-}
+fn isolate_process_group(_command: &mut Command) {}
 
 fn backend_command() -> Result<Command, String> {
     let executable_directory = env::current_exe()
@@ -222,6 +282,7 @@ fn executable_command(executable: PathBuf) -> Command {
     let mut command = Command::new(executable);
     command.args(["--host", "127.0.0.1", "--port", BACKEND_PORT]);
     forward_sandbox_directory(&mut command, None);
+    forward_owner_process_id(&mut command);
     suppress_console_window(&mut command);
     command
 }
@@ -239,7 +300,12 @@ fn development_command() -> Result<Command, String> {
         .args(["--host", "127.0.0.1", "--port", BACKEND_PORT])
         .current_dir(project_root.join("backend"));
     forward_sandbox_directory(&mut command, Some(&project_root));
+    forward_owner_process_id(&mut command);
     Ok(command)
+}
+
+fn forward_owner_process_id(command: &mut Command) {
+    command.env(OWNER_PROCESS_ID_ENV, std::process::id().to_string());
 }
 
 /// 传递沙盒目录；只有开发期才把相对路径按项目根目录展开，打包后没有项目根目录可依赖。
@@ -283,8 +349,8 @@ fn find_python(project_root: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_backend_launch, resolve_environment_path, BackendLaunch, CommandFactory,
-        PythonSidecar, SIDECAR_FILE_NAME,
+        forward_owner_process_id, resolve_backend_launch, resolve_environment_path, BackendLaunch,
+        CommandFactory, PythonSidecar, OWNER_PROCESS_ID_ENV, SIDECAR_FILE_NAME,
     };
     use std::{
         fs,
@@ -406,6 +472,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn backend_command_receives_the_owner_process_id() {
+        let mut command = Command::new("backend");
+
+        forward_owner_process_id(&mut command);
+
+        let owner_process_id = command
+            .get_envs()
+            .find(|(name, _)| *name == OWNER_PROCESS_ID_ENV)
+            .and_then(|(_, value)| value)
+            .expect("owner process ID should be configured");
+        assert_eq!(owner_process_id, std::process::id().to_string().as_str());
+    }
+
     #[cfg(unix)]
     fn long_running_command() -> Result<Command, String> {
         let mut command = Command::new("sleep");
@@ -429,6 +509,20 @@ mod tests {
             sidecar.status().expect("stopped status should succeed"),
             (false, None)
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn started_sidecar_owns_a_dedicated_process_group() {
+        let sidecar = sidecar_with(long_running_command);
+        let (_, pid) = sidecar.start().expect("sidecar should start");
+        let pid = pid.expect("running sidecar should expose its PID") as libc::pid_t;
+
+        // SAFETY: getpgid only inspects the live child PID returned by the sidecar owner.
+        let process_group_id = unsafe { libc::getpgid(pid) };
+        assert_eq!(process_group_id, pid);
+
+        sidecar.stop().expect("sidecar should stop");
     }
 
     #[cfg(unix)]

@@ -23,14 +23,14 @@ def _seed_account(database_path: Path, master_password: str) -> None:
     repository.add(
         AccountCreate(
             uuid="00000000-0000-4000-8000-000000000006",
-            github_username="phase-six-user",
-            github_email="phase-six@example.test",
-            github_password=SecretStr("Fake-GitHub-Password-Phase-6!"),
+            github_username="account-user",
+            github_email="account@example.test",
+            github_password=SecretStr("Fake-GitHub-Account-Password!"),
             opencode_provider_name="opencode-go",
-            opencode_workspace_id="wrk_phase6",
+            opencode_workspace_id="wrk_account",
             opencode_api_key=SecretStr("sk-" + "q" * 64),
             email_provider="duckmail",
-            temp_email="phase-six@example.test",
+            temp_email="account@example.test",
         )
     )
 
@@ -87,20 +87,20 @@ async def test_new_vault_requires_matching_master_password_confirmation(tmp_path
     ) as client:
         missing_response = await client.post(
             "/api/vault/unlock",
-            json={"master_password": "new phase six master password"},
+            json={"master_password": "new account vault master password"},
         )
         mismatch_response = await client.post(
             "/api/vault/unlock",
             json={
-                "master_password": "new phase six master password",
-                "master_password_confirmation": "different phase six password",
+                "master_password": "new account vault master password",
+                "master_password_confirmation": "different account vault password",
             },
         )
         success_response = await client.post(
             "/api/vault/unlock",
             json={
-                "master_password": "new phase six master password",
-                "master_password_confirmation": "new phase six master password",
+                "master_password": "new account vault master password",
+                "master_password_confirmation": "new account vault master password",
             },
         )
 
@@ -208,7 +208,7 @@ async def test_unlock_lists_only_account_summary(tmp_path: Path) -> None:
     """
 
     database_path = tmp_path / "accounts.db"
-    master_password = "correct phase six master password"
+    master_password = "correct account vault master password"
     _seed_account(database_path, master_password)
     vault_service = AccountVaultService(database_path)
     async with AsyncClient(
@@ -224,13 +224,13 @@ async def test_unlock_lists_only_account_summary(tmp_path: Path) -> None:
     assert unlock_response.json() == {"unlocked": True, "initialized": True}
     assert list_response.status_code == 200
     account = list_response.json()["accounts"][0]
-    assert account["github_username"] == "phase-six-user"
-    assert account["github_email_masked"] == "p***@example.test"
+    assert account["github_username"] == "account-user"
+    assert account["github_email_masked"] == "a***@example.test"
     assert account["opencode_provider_name"] == "opencode-go"
     assert "github_password" not in account
     assert "opencode_api_key" not in account
-    assert "Fake-GitHub-Password" not in list_response.text
-    assert "phase-six@example.test" not in list_response.text
+    assert "Fake-GitHub-Account-Password" not in list_response.text
+    assert "account@example.test" not in list_response.text
     assert "sk-" not in list_response.text
 
 
@@ -241,7 +241,7 @@ async def test_account_api_key_requires_explicit_target_and_keeps_list_masked(tm
     """
 
     database_path = tmp_path / "accounts.db"
-    master_password = "correct phase six master password"
+    master_password = "correct account vault master password"
     _seed_account(database_path, master_password)
     vault_service = AccountVaultService(database_path)
     async with AsyncClient(
@@ -308,9 +308,9 @@ async def test_unlock_rejects_wrong_password_without_exposing_it(tmp_path: Path)
     """
 
     database_path = tmp_path / "accounts.db"
-    _seed_account(database_path, "correct phase six master password")
+    _seed_account(database_path, "correct account vault master password")
     vault_service = AccountVaultService(database_path)
-    wrong_password = "wrong phase six master password"
+    wrong_password = "wrong account vault master password"
     async with AsyncClient(
         transport=ASGITransport(app=create_app(vault_service)),
         base_url="http://test",
@@ -337,11 +337,11 @@ async def test_export_then_import_uses_binary_bundle_contract(
     sandbox_path = tmp_path / "sandbox"
     monkeypatch.setenv("OPENCODE_REGISTER_SANDBOX_DIR", str(sandbox_path))
     source_path = tmp_path / "source.db"
-    source_password = "source phase six master password"
+    source_password = "source account vault master password"
     _seed_account(source_path, source_password)
     source_vault = AccountVaultService(source_path)
     source_vault.unlock(SecretStr(source_password))
-    bundle_password = "independent phase six bundle password"
+    bundle_password = "independent account bundle password"
     async with AsyncClient(
         transport=ASGITransport(app=create_app(source_vault)),
         base_url="http://test",
@@ -352,7 +352,7 @@ async def test_export_then_import_uses_binary_bundle_contract(
         )
 
     target_vault = AccountVaultService(tmp_path / "target.db")
-    target_password = SecretStr("target phase six master password")
+    target_password = SecretStr("target account vault master password")
     target_vault.unlock(target_password, target_password)
     async with AsyncClient(
         transport=ASGITransport(app=create_app(target_vault)),

@@ -6,10 +6,10 @@ const accountPayload = {
   accounts: [
     {
       uuid: "00000000-0000-4000-8000-000000000006",
-      github_username: "phase-six-user",
+      github_username: "account-user",
       github_email_masked: "p***@example.test",
       opencode_provider_name: "opencode-go",
-      opencode_workspace_id: "wrk_phase6",
+      opencode_workspace_id: "wrk_account",
       status: "active",
       opencode_configured: true,
       omo_configured: true,
@@ -38,18 +38,18 @@ describe("Dashboard", () => {
     render(<Dashboard isBackendConnected onVaultStatusChange={vi.fn()} />);
 
     const passwordInput = await screen.findByLabelText("主密码");
-    fireEvent.change(passwordInput, { target: { value: "phase six master password" } });
+    fireEvent.change(passwordInput, { target: { value: "account vault master password" } });
     fireEvent.click(screen.getByRole("button", { name: "解锁" }));
 
-    expect(await screen.findByText("phase-six-user")).toBeInTheDocument();
+    expect(await screen.findByText("account-user")).toBeInTheDocument();
     expect(screen.getByText("p***@example.test")).toBeInTheDocument();
-    expect(screen.queryByText("phase-six@example.test")).not.toBeInTheDocument();
+    expect(screen.queryByText("account@example.test")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://127.0.0.1:17891/api/vault/unlock",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ master_password: "phase six master password" }),
+        body: JSON.stringify({ master_password: "account vault master password" }),
       }),
     );
     expect(screen.queryByLabelText("主密码")).not.toBeInTheDocument();
@@ -83,7 +83,7 @@ describe("Dashboard", () => {
     resolveAccounts(response(accountPayload));
 
     expect(await screen.findByText("等待本地服务")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("phase-six-user")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("account-user")).not.toBeInTheDocument());
   });
 
   it("ignores unknown quotas when every checked account is near its limit", async () => {
@@ -102,7 +102,7 @@ describe("Dashboard", () => {
             {
               ...accountPayload.accounts[0],
               uuid: "00000000-0000-4000-8000-000000000007",
-              github_username: "phase-seven-unchecked",
+              github_username: "quota-unchecked",
               opencode_provider_name: "opencode-go2",
             },
           ],
@@ -122,10 +122,10 @@ describe("Dashboard", () => {
     render(<Dashboard isBackendConnected onVaultStatusChange={vi.fn()} />);
 
     fireEvent.change(await screen.findByLabelText("主密码"), {
-      target: { value: "new phase six master password" },
+      target: { value: "new account vault master password" },
     });
     fireEvent.change(screen.getByLabelText("确认主密码"), {
-      target: { value: "new phase six master password" },
+      target: { value: "new account vault master password" },
     });
     fireEvent.click(screen.getByRole("button", { name: "解锁" }));
 
@@ -135,8 +135,8 @@ describe("Dashboard", () => {
       "http://127.0.0.1:17891/api/vault/unlock",
       expect.objectContaining({
         body: JSON.stringify({
-          master_password: "new phase six master password",
-          master_password_confirmation: "new phase six master password",
+          master_password: "new account vault master password",
+          master_password_confirmation: "new account vault master password",
         }),
       }),
     );
@@ -166,14 +166,14 @@ describe("Dashboard", () => {
     render(<Dashboard isBackendConnected onVaultStatusChange={onVaultStatusChange} />);
 
     fireEvent.change(await screen.findByLabelText("主密码"), {
-      target: { value: "wrong phase six master password" },
+      target: { value: "wrong account vault master password" },
     });
     fireEvent.click(screen.getByRole("button", { name: "解锁" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("主密码不正确");
     expect(screen.getByLabelText("主密码")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("主密码"), {
-      target: { value: "retry phase six master password" },
+      target: { value: "retry account vault master password" },
     });
     expect(screen.getByRole("button", { name: "解锁" })).toBeEnabled();
     expect(onVaultStatusChange).toHaveBeenLastCalledWith(false);
@@ -228,7 +228,7 @@ describe("Dashboard", () => {
   it("requires an exact username before automatic GitHub deletion", async () => {
     const cleanupSession = {
       account_id: "00000000-0000-4000-8000-000000000006",
-      github_username: "phase-six-user",
+      github_username: "account-user",
       status: "done",
       manual_intervention: null,
       promoted_account_id: null,
@@ -243,10 +243,10 @@ describe("Dashboard", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<Dashboard isBackendConnected onVaultStatusChange={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "删除 phase-six-user" }));
+    fireEvent.click(await screen.findByRole("button", { name: "删除 account-user" }));
     const openCleanupButton = screen.getByRole("button", { name: "确认并删除 GitHub 账号" });
     expect(openCleanupButton).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("GitHub 用户名"), { target: { value: "phase-six-user" } });
+    fireEvent.change(screen.getByLabelText("GitHub 用户名"), { target: { value: "account-user" } });
     fireEvent.click(openCleanupButton);
 
     expect(await screen.findByText("尚未保存任何账号")).toBeInTheDocument();
@@ -255,7 +255,7 @@ describe("Dashboard", () => {
       "http://127.0.0.1:17891/api/accounts/00000000-0000-4000-8000-000000000006",
       expect.objectContaining({
         method: "DELETE",
-        body: JSON.stringify({ confirmed_username: "phase-six-user" }),
+        body: JSON.stringify({ confirmed_username: "account-user" }),
       }),
     );
   });

@@ -37,8 +37,8 @@ Rust owns Python sidecar lifecycle, desktop permissions, windows, system paths,
 packaging resources, and a small typed IPC surface. It does not own account
 workflow, providers, browser automation, or account data.
 
-Production sidecar embedding belongs to Phase 8. Development-path launching
-must not be presented as completed production packaging.
+Production packaging embeds the sidecar. Development-path launching must not be
+presented as completed production packaging.
 
 ## 5.4 Python API Boundary
 

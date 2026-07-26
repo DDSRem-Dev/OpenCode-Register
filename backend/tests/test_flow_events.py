@@ -44,9 +44,9 @@ def test_manual_event_contains_no_secret_fields() -> None:
     assert "base64" not in serialized
 
 
-def test_payment_and_completion_events_match_phase_four_states() -> None:
+def test_payment_and_completion_events_match_flow_states() -> None:
     """
-    验证付款人工状态与 Phase 4 完成事件使用稳定名称
+    验证付款人工状态与流程完成事件使用稳定名称
     """
 
     payment_session = FlowSession(

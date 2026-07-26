@@ -5,7 +5,7 @@
 `GET /api/health` 的 `storage_mode` 为 `system` 或 `sandbox`。沙盒模式由
 `OPENCODE_REGISTER_SANDBOX_DIR` 启用，供前端明确提示当前本地文件写入边界。
 
-## Phase 6 账号库
+## 账号库
 
 账号库在每次进程启动后保持锁定。首次初始化要求用户输入并确认主密码；后续启动使用同一主密码解锁。
 数据库保存由派生密钥生成的 AES-GCM 认证密文，因此即使账号库为空也能拒绝错误主密码。主密码和
@@ -71,11 +71,11 @@ OCRB1 | 16-byte salt | 12-byte nonce | AES-256-GCM ciphertext and tag
 }
 ```
 
-Phase 6 使用的主要错误码包括 `vault_locked`、`invalid_master_password`、
+账号库使用的主要错误码包括 `vault_locked`、`invalid_master_password`、
 `master_password_confirmation_mismatch`、`invalid_import_bundle`、`account_import_conflict` 和
 `account_import_configuration_failed`。错误响应不会包含密码、账号密文、完整邮箱、导入包内容或本地路径。
 
-## Phase 3 安全截图
+## 安全截图
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ Phase 6 使用的主要错误码包括 `vault_locked`、`invalid_master_password
 截图默认关闭，WebSocket 快照仅返回 `screenshot_id`，不传图片内容或本地路径。标识不存在、已过期、已随
 流程终态删除或不属于指定流程时统一返回 `404 flow_screenshot_not_found`。
 
-## Phase 7 额度检测
+## 额度检测
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -109,7 +109,7 @@ CAPTCHA、设备验证和未知安全阻断不会被自动处理或绕过。此�
 确定账号失效时，账号摘要保存 `quota_checked_at` 和枚举化的 `quota_invalid_reason`。界面显示检查日期与原因，
 不再显示空月度进度；历史失效记录迁移后使用原更新时间，并明确标记为历史原因未知。
 
-## Phase 7 账号清理
+## 账号清理
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |

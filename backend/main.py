@@ -30,6 +30,7 @@ from engine.cleanup_service import AccountCleanupService
 from engine.completion import AccountCompletionService
 from engine.quota_service import QuotaCheckService
 from engine.service import CreateAccountService
+from process_watchdog import start_owner_watchdog
 from scheduler.quota_scheduler import QuotaScheduler
 from storage.screenshots import ScreenshotStore
 from storage.service import AccountVaultService
@@ -170,4 +171,5 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
+    start_owner_watchdog()
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

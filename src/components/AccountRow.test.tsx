@@ -5,10 +5,10 @@ import type { AccountSummary } from "../services/api";
 
 const account: AccountSummary = {
   uuid: "00000000-0000-4000-8000-000000000007",
-  githubUsername: "phase-seven-user",
+  githubUsername: "quota-user",
   githubEmailMasked: "p***@example.test",
   opencodeProviderName: "opencode-go",
-  opencodeWorkspaceId: "wrk_phase7",
+  opencodeWorkspaceId: "wrk_quota",
   status: "active",
   opencodeConfigured: true,
   omoConfigured: true,

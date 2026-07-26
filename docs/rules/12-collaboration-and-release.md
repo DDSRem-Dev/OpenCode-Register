@@ -142,7 +142,7 @@ The intended CI order is:
 4. Rust format, check, Clippy, and tests.
 5. Local cross-process smoke test.
 6. Dependency/security checks.
-7. Platform build matrix when Phase 8 packaging begins.
+7. Platform build matrix for packaged releases.
 
 CI must use lockfiles and clean environments. It must never access real user
 configuration, credentials, live registration/payment flows, or destructive
@@ -157,7 +157,7 @@ account endpoints.
 - [ ] Verify schema/config/export compatibility and migrations.
 - [ ] Review user-facing and architecture documentation for stale paths.
 - [ ] Build and smoke-test each supported target platform.
-- [ ] Verify Python sidecar/browser packaging when Phase 8 is active.
+- [ ] Verify Python sidecar/browser packaging.
 - [ ] Verify macOS signing/notarization and Windows signing/Defender behavior.
 - [ ] Generate a changelog from Conventional Commit subjects.
 - [ ] Tag the exact reviewed commit and attach checksummed artifacts.

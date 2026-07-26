@@ -98,7 +98,7 @@ def create_service(tmp_path: Path) -> OpenCodePoolConfigService:
 
 def account(account_id: str, provider_name: str, key_character: str) -> Account:
     """
-    创建 Phase 7 配置清理使用的虚构账号
+    创建配置清理使用的虚构账号
 
     :param account_id (str): 测试账号 UUID
     :param provider_name (str): 测试 provider 名称
@@ -112,7 +112,7 @@ def account(account_id: str, provider_name: str, key_character: str) -> Account:
         uuid=account_id,
         github_username=f"{account_id}-user",
         github_email=f"{account_id}@example.test",
-        github_password=SecretStr("Fake-Phase-Seven-GitHub-Password!"),
+        github_password=SecretStr("Fake-Cleanup-GitHub-Password!"),
         github_created_at=timestamp,
         opencode_provider_name=provider_name,
         opencode_workspace_id=f"wrk_{account_id}",

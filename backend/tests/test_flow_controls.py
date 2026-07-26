@@ -123,7 +123,7 @@ async def test_email_code_failure_releases_browser_and_mailbox() -> None:
 
     assert result.status == FlowStepStatus.ERROR
     assert result.session.error_code == "github_email_code_failed"
-    assert provider.disposed_email == "phase2@example.test"
+    assert provider.disposed_email == "flow@example.test"
     assert browser.closed is True
 
 
@@ -148,7 +148,7 @@ async def test_browser_failure_releases_browser_and_mailbox() -> None:
     result = await flow.start()
 
     assert result.status == FlowStepStatus.ERROR
-    assert provider.disposed_email == "phase2@example.test"
+    assert provider.disposed_email == "flow@example.test"
     assert browser.closed is True
 
 
@@ -175,4 +175,4 @@ async def test_pause_waits_for_safe_point_and_resumes_without_duplicate_email() 
     resumed = await flow.resume()
     assert pending.session.status == FlowStatus.PENDING_PAYMENT
     assert resumed.session.status == FlowStatus.DONE
-    assert browser.started_email == "phase2@example.test"
+    assert browser.started_email == "flow@example.test"

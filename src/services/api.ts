@@ -269,7 +269,13 @@ export function subscribeFlow(
   let isClosed = false;
 
   const connect = () => {
-    socket = new WebSocket(`${WEBSOCKET_URL}/ws/flow/${encodeURIComponent(flowId)}`);
+    try {
+      socket = new WebSocket(`${WEBSOCKET_URL}/ws/flow/${encodeURIComponent(flowId)}`);
+    } catch {
+      onError("无法连接流程事件");
+      if (!isClosed) reconnectTimer = window.setTimeout(connect, 1000);
+      return;
+    }
     socket.onmessage = (message: MessageEvent<unknown>) => {
       try {
         if (typeof message.data !== "string") throw new Error("本地服务返回了非文本流程事件");

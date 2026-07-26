@@ -16,7 +16,7 @@
 - OpenCode Go 后台浏览器额度检测与额度预警
 - GitHub 失效账号精确确认后自动删除及本地号池安全清理
 
-当前实现范围为 Phase 1–8。PyInstaller/Tauri sidecar 二进制分发已交付，见「构建分发包」。
+项目功能已完整交付。PyInstaller/Tauri sidecar 二进制分发说明见「构建分发包」。
 代码签名与 macOS 公证尚未交付，分发产物为未签名状态。
 
 ## 技术栈
@@ -40,7 +40,7 @@
 - 额度检测：后台 CloakBrowser 登录已验证 workspace，并直接读取 Go 仪表盘额度节点
 - 失效清理：用户输入精确 GitHub 用户名授权删除，程序自动提交已验证表单，远端验证后再清理 SQLite 与号池配置
 - 导入恢复：完整校验加密包后按目标机器自动配置设置重建配置；数据库提交失败会回滚本次配置写入
-- 分发：Phase 8 计划使用 PyInstaller 打包 Python 后端为 Tauri sidecar 二进制
+- 分发：PyInstaller 将 Python 后端打包为 Tauri sidecar 二进制
 
 ## 核心流程
 
@@ -48,18 +48,17 @@
 临时邮箱 → GitHub 注册 → OpenCode 登录 → 跳转支付页 → 手动支付 → 记录 API Key → 加入号池
 ```
 
-## 开发计划
+## 已交付能力
 
-| 阶段 | 内容 |
+| 能力 | 内容 |
 |------|------|
-| Phase 1 | Tauri + Python 本地服务打通 |
-| Phase 2 | DuckMail provider 集成 + 流程引擎 |
-| Phase 3 | GitHub 注册 + 人工介入面板 |
-| Phase 4 | OpenCode 登录 + 支付跳转 + API Key 读取 |
-| Phase 5 | SQLite 加密 + 号池配置写入（auth.json / opencode.json / oh-my-openagent.json） |
-| Phase 6 | 账号列表 UI + 导出/导入 |
-| Phase 7 | 额度检测 + 失效清理 |
-| Phase 8 | 二进制打包分发（PyInstaller + Tauri sidecar）+ 文档 |
+| 桌面运行时 | Tauri 壳、Python 本地服务与前后端通信 |
+| 注册流程 | DuckMail provider、GitHub 注册与人工介入面板 |
+| OpenCode 接入 | OpenCode 登录、支付跳转与 API Key 读取 |
+| 本地存储 | SQLite 加密与号池配置写入（auth.json / opencode.json / oh-my-openagent.json） |
+| 账号管理 | 账号列表、导出与导入 |
+| 账号维护 | 额度检测与失效清理 |
+| 应用分发 | PyInstaller + Tauri sidecar 二进制打包与文档 |
 
 ## 本地开发
 

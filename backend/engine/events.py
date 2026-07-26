@@ -14,7 +14,7 @@ class FlowEventName(StrEnum):
     Attributes:
         FLOW_SNAPSHOT: 流程权威快照
         MANUAL_INTERVENTION_REQUIRED: 请求用户人工介入
-        FLOW_COMPLETED: Phase 4 流程已完成
+        FLOW_COMPLETED: 账号创建流程已完成
         FLOW_FAILED: 流程执行失败
         FLOW_CANCELLED: 流程已取消
     """

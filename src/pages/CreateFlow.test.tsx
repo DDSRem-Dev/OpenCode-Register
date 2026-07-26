@@ -20,7 +20,7 @@ const manualSession = {
   flow_id: "flow-test-1",
   status: "manual_verify" as const,
   email_provider: "duckmail",
-  temp_email: "phase3@example.test",
+  temp_email: "flow@example.test",
   github_username: "learner-test",
   account_id: null,
   opencode_workspace_id: null,

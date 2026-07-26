@@ -12,13 +12,13 @@
 | Frontend quality | TypeScript strict, Vitest, Testing Library | `tsconfig.json`, `package.json` |
 | Package management | npm, uv, Cargo | Corresponding lockfiles |
 
-PyInstaller is an active build-time dependency in the backend `dev` group since
-Phase 8; it freezes the backend into the Tauri sidecar binary and never enters
-the runtime dependency set.
+PyInstaller is an active build-time dependency in the backend `dev` group. It
+freezes the backend into the Tauri sidecar binary and never enters the runtime
+dependency set.
 
 CloakBrowser, SQLite, cryptography, APScheduler, and other planned dependencies
-are added only when their architecture phase begins and a real caller exists. Do
-not preinstall dependencies for speculative future work.
+are added only when an approved architecture requirement and a real caller
+exist. Do not preinstall dependencies for speculative future work.
 
 ## 2.2 Lockfile Policy
 

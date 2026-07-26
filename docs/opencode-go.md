@@ -1,6 +1,6 @@
 # OpenCode Go 登录、付款与 API Key
 
-Phase 4 从 Phase 3 的 GitHub 登录会话继续执行 OpenCode Console OAuth，导航到 OpenCode Go
+GitHub 登录会话随后执行 OpenCode Console OAuth，导航到 OpenCode Go
 订阅页面，等待用户手动付款，然后读取默认 API Key。页面契约于 2026-07-25 使用真实 Chrome
 登录态验证；自动测试不会执行真实 OAuth、付款或密钥复制。
 
@@ -19,7 +19,7 @@ OpenCode Go 未订阅页面显示「订阅 Go」和「其他付款方式」。Al
 后端只打开 `/go` 页面，不选择付款方式，也不点击 Checkout 的最终「订阅」按钮。金额、币种和
 折扣属于实时第三方数据，不进入流程判断。
 
-Phase 7 单账号额度浏览器兜底会在已验证的 workspace Go 页面读取「订阅 Go」入口。该入口存在时说明
+单账号额度浏览器检查会在已验证的 workspace Go 页面读取「订阅 Go」入口。该入口存在时说明
 当前没有可用订阅，检查结果标记账号失效并清空旧额度快照；检测不会点击订阅入口。未知页面或不唯一状态
 仍安全失败，不按价格、API Key 是否存在或页面任意文本推断订阅有效性。
 

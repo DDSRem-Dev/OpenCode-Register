@@ -58,7 +58,7 @@ class AccountCompletionService:
         """
         写入号池配置并加密持久化完成账号
 
-        :param data (AccountCompletionData): Phase 4 取得的完整账号数据
+        :param data (AccountCompletionData): 流程取得的完整账号数据
 
         :return str: 分配完成的 OpenCode provider 名称
 

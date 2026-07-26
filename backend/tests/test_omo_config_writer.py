@@ -241,7 +241,7 @@ def test_omo_rejects_invalid_existing_runtime_structure(tmp_path: Path) -> None:
 
 def test_omo_remove_account_cleans_primary_and_fallback_references(tmp_path: Path) -> None:
     """
-    验证 Phase 7 账号清理移除全部目标 provider 引用并保留顺序
+    验证账号清理移除全部目标 provider 引用并保留顺序
     """
 
     paths = create_paths(tmp_path)

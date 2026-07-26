@@ -17,19 +17,19 @@ from storage.service import AccountVaultService
 
 def _vault(tmp_path: Path) -> AccountVaultService:
     vault = AccountVaultService(tmp_path / "accounts.db")
-    password = SecretStr("phase seven master password")
+    password = SecretStr("quota service master password")
     vault.unlock(password, password)
     vault.add_account(
         AccountCreate(
-            uuid="phase-seven-account",
-            github_username="phase-seven-user",
-            github_email="phase-seven@example.test",
-            github_password=SecretStr("Fake-Phase-Seven-GitHub-Password!"),
+            uuid="quota-account",
+            github_username="quota-user",
+            github_email="quota@example.test",
+            github_password=SecretStr("Fake-Quota-GitHub-Password!"),
             opencode_provider_name="opencode-go",
-            opencode_workspace_id="wrk_phase7",
+            opencode_workspace_id="wrk_quota",
             opencode_api_key=SecretStr("sk-" + "q" * 64),
             email_provider="duckmail",
-            temp_email="phase-seven@example.test",
+            temp_email="quota@example.test",
         )
     )
     return vault
@@ -102,7 +102,7 @@ async def test_quota_service_persists_monthly_percentage(tmp_path: Path) -> None
     )
     service = _quota_service(vault, lambda: browser_client)
     try:
-        result = await service.refresh_account("phase-seven-account")
+        result = await service.refresh_account("quota-account")
     finally:
         await service.close()
 
@@ -126,7 +126,7 @@ async def test_quota_service_marks_exhausted_and_invalid(tmp_path: Path) -> None
     )
     exhausted_service = _quota_service(vault, lambda: exhausted_browser)
     try:
-        exhausted = await exhausted_service.refresh_account("phase-seven-account")
+        exhausted = await exhausted_service.refresh_account("quota-account")
     finally:
         await exhausted_service.close()
     assert exhausted.status == QuotaRefreshStatus.EXHAUSTED
@@ -135,7 +135,7 @@ async def test_quota_service_marks_exhausted_and_invalid(tmp_path: Path) -> None
     invalid_browser = FakeQuotaBrowserClient([OpenCodeQuotaPageResult(status=OpenCodeQuotaPageStatus.INVALID)])
     invalid_service = _quota_service(vault, lambda: invalid_browser)
     try:
-        invalid = await invalid_service.refresh_account("phase-seven-account")
+        invalid = await invalid_service.refresh_account("quota-account")
     finally:
         await invalid_service.close()
     assert invalid.status == QuotaRefreshStatus.INVALID
@@ -152,7 +152,7 @@ async def test_background_browser_block_preserves_existing_snapshot(tmp_path: Pa
     """
 
     vault = _vault(tmp_path)
-    vault.update_quota("phase-seven-account", 100, 42, vault.list_accounts()[0].created_at, AccountStatus.ACTIVE)
+    vault.update_quota("quota-account", 100, 42, vault.list_accounts()[0].created_at, AccountStatus.ACTIVE)
     browser_client = FakeQuotaBrowserClient(
         [
             OpenCodeQuotaPageResult(
@@ -163,7 +163,7 @@ async def test_background_browser_block_preserves_existing_snapshot(tmp_path: Pa
     )
     service = _quota_service(vault, lambda: browser_client)
     try:
-        result = await service.refresh_account("phase-seven-account")
+        result = await service.refresh_account("quota-account")
     finally:
         await service.close()
 
@@ -186,7 +186,7 @@ async def test_background_browser_closes_after_success(tmp_path: Path) -> None:
     )
     service = _quota_service(vault, lambda: browser_client)
     try:
-        updated = await service.refresh_account("phase-seven-account")
+        updated = await service.refresh_account("quota-account")
     finally:
         await service.close()
 
@@ -205,13 +205,13 @@ async def test_browser_quota_marks_missing_subscription_invalid(tmp_path: Path) 
     """
 
     vault = _vault(tmp_path)
-    vault.update_quota("phase-seven-account", 100, 42, vault.list_accounts()[0].created_at, AccountStatus.ACTIVE)
+    vault.update_quota("quota-account", 100, 42, vault.list_accounts()[0].created_at, AccountStatus.ACTIVE)
     browser_client = FakeQuotaBrowserClient(
         [OpenCodeQuotaPageResult(status=OpenCodeQuotaPageStatus.SUBSCRIPTION_REQUIRED)]
     )
     service = _quota_service(vault, lambda: browser_client)
     try:
-        result = await service.refresh_account("phase-seven-account")
+        result = await service.refresh_account("quota-account")
     finally:
         await service.close()
 

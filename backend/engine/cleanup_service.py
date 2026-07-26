@@ -31,7 +31,7 @@ class CleanupFlowBusyError(Exception):
 
 class AccountCleanupService:
     """
-    Phase 7 GitHub 账号清理流程生命周期服务
+    GitHub 账号清理流程生命周期服务
     """
 
     def __init__(

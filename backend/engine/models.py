@@ -18,7 +18,7 @@ class FlowStatus(StrEnum):
         OPENCODE_LOGIN: 正在通过 GitHub OAuth 登录 OpenCode
         PENDING_PAYMENT: 已打开 OpenCode Go 页面并等待用户付款
         FETCH_API_KEY: 用户确认付款后正在读取默认 API Key
-        DONE: Phase 4 账号创建流程已完成
+        DONE: 账号创建流程已完成
         ERROR: 流程执行失败
         CANCELLED: 流程已取消
     """
@@ -113,7 +113,7 @@ class FlowSession(BaseModel):
 
 class AccountCompletionData(BaseModel):
     """
-    Phase 4 向加密持久化边界提交的完整账号数据
+    向加密持久化边界提交的完整账号数据
     """
 
     model_config = ConfigDict(extra="forbid")

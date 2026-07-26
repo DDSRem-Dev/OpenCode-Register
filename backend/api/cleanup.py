@@ -36,7 +36,7 @@ class ConfirmAccountCleanupRequest(BaseModel):
 
 def create_cleanup_router(service: AccountCleanupService) -> APIRouter:
     """
-    创建 Phase 7 GitHub 账号清理路由
+    创建 GitHub 账号清理路由
 
     :param service (AccountCleanupService): 账号清理流程服务
 

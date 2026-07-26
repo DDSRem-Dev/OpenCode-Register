@@ -6,7 +6,7 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(PythonSidecar::default())
         .invoke_handler(tauri::generate_handler![
             commands::start_backend,
@@ -24,6 +24,15 @@ pub fn run() {
                 let _ = sidecar.stop();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running the Tauri application");
+        .build(tauri::generate_context!())
+        .expect("failed to build the Tauri application");
+    app.run(|app_handle, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            let sidecar = app_handle.state::<PythonSidecar>();
+            let _ = sidecar.stop();
+        }
+    });
 }
