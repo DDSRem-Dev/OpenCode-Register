@@ -6,7 +6,13 @@ from typing import Awaitable, Callable, Dict, List, Optional, Set
 from pydantic import SecretStr
 
 from browser.base import GitHubRegistrationClient, OpenCodeAutomationClient
-from browser.models import GitHubPageResult, GitHubPageStatus, OpenCodePageResult, OpenCodePageStatus
+from browser.models import (
+    GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE,
+    GitHubPageResult,
+    GitHubPageStatus,
+    OpenCodePageResult,
+    OpenCodePageStatus,
+)
 from engine.completion import AccountCompletionError
 from engine.manual_intervention import create_flow_manual_intervention
 from engine.models import (
@@ -23,6 +29,40 @@ from providers.base import EmailProvider
 from providers.errors import EmailProviderError
 from storage.models import AccountStatus
 from storage.screenshots import ScreenshotStore, ScreenshotStoreError
+
+USERNAME_PREFIXES = (
+    "amber",
+    "cedar",
+    "cloud",
+    "cobalt",
+    "ember",
+    "harbor",
+    "lunar",
+    "maple",
+    "meadow",
+    "north",
+    "river",
+    "silver",
+    "solar",
+    "willow",
+)
+USERNAME_SUFFIXES = (
+    "atlas",
+    "byte",
+    "canvas",
+    "craft",
+    "field",
+    "forge",
+    "journal",
+    "labs",
+    "notes",
+    "orbit",
+    "pixel",
+    "studio",
+    "trail",
+    "works",
+)
+MAX_GITHUB_USERNAME_ATTEMPTS = 5
 
 
 class FlowTransitionError(Exception):
@@ -163,12 +203,18 @@ class CreateAccountFlow:
     async def _start_github_registration(self) -> FlowStepResult:
         if self._session.temp_email is None or self._session.github_username is None or self._github_password is None:
             return await self._fail_and_cleanup("flow_state_invalid", "账号流程状态无效")
-        page_result = await self._github_client.start_registration(
-            self._session.temp_email,
-            self._session.github_username,
-            self._github_password,
-        )
-        return await self._handle_github_result(page_result)
+        for attempt in range(MAX_GITHUB_USERNAME_ATTEMPTS):
+            page_result = await self._github_client.start_registration(
+                self._session.temp_email,
+                self._session.github_username,
+                self._github_password,
+            )
+            if page_result.error_code != GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE:
+                return await self._handle_github_result(page_result)
+            if attempt + 1 < MAX_GITHUB_USERNAME_ATTEMPTS:
+                self._session.github_username = self._generate_username()
+                self._notify()
+        return await self._fail_and_cleanup(GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE, "未能生成可用的 GitHub 用户名")
 
     async def resume(self, api_key: Optional[str] = None) -> FlowStepResult:
         """
@@ -542,8 +588,17 @@ class CreateAccountFlow:
 
     @staticmethod
     def _generate_username() -> str:
-        alphabet = string.ascii_lowercase + string.digits
-        return "learner-" + "".join(secrets.choice(alphabet) for _ in range(10))
+        prefix = secrets.choice(USERNAME_PREFIXES)
+        suffix = secrets.choice(USERNAME_SUFFIXES)
+        pattern = secrets.randbelow(4)
+        number = secrets.randbelow(9_900) + 100
+        if pattern == 0:
+            return f"{prefix}{suffix}{number}"
+        if pattern == 1:
+            return f"{prefix}-{suffix}{number}"
+        if pattern == 2:
+            return f"{suffix}{prefix}{number}"
+        return f"{suffix}-{prefix}{number}"
 
     @staticmethod
     def _generate_password() -> str:

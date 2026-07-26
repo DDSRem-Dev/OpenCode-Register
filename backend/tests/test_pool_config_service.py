@@ -117,7 +117,7 @@ def account(account_id: str, provider_name: str, key_character: str) -> Account:
         opencode_provider_name=provider_name,
         opencode_workspace_id=f"wrk_{account_id}",
         opencode_api_key=SecretStr("sk-" + key_character * 64),
-        email_provider="duckmail",
+        email_provider="temp_mail",
         temp_email=f"{account_id}@example.test",
         status=AccountStatus.ACTIVE,
         created_at=timestamp,

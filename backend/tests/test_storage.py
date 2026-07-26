@@ -48,13 +48,13 @@ def create_account(provider_name: str = "opencode-go") -> AccountCreate:
 
     return AccountCreate(
         uuid="00000000-0000-4000-8000-000000000001",
-        github_username="learner-test123",
+        github_username="river-notes42",
         github_email="learner@example.test",
         github_password=SecretStr("Fake-GitHub-Password-123!"),
         opencode_provider_name=provider_name,
         opencode_workspace_id="wrk_test123",
         opencode_api_key=SecretStr("sk-" + "x" * 64),
-        email_provider="duckmail",
+        email_provider="temp_mail",
         temp_email="learner@example.test",
     )
 
@@ -212,7 +212,7 @@ def test_pending_account_is_encrypted_and_atomically_promoted(tmp_path: Path) ->
             github_username="pending-user",
             github_email="pending@example.test",
             github_password=SecretStr("Fake-Pending-GitHub-Password!"),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="pending@example.test",
         )
     )
@@ -253,7 +253,7 @@ def test_cleanup_intent_survives_until_atomic_delete_and_promotion(tmp_path: Pat
         create_account("opencode-go2").model_copy(
             update={
                 "uuid": "00000000-0000-4000-8000-000000000002",
-                "github_username": "learner-test456",
+                "github_username": "cedarforge27",
             }
         )
     )

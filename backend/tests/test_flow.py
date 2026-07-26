@@ -7,6 +7,7 @@ from pydantic import SecretStr
 
 from browser.base import GitHubRegistrationClient, OpenCodeAutomationClient
 from browser.models import (
+    GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE,
     GitHubPageResult,
     GitHubPageStatus,
     OpenCodePageResult,
@@ -145,6 +146,7 @@ class FakeGitHubRegistrationClient(GitHubRegistrationClient):
         self.results = results or [GitHubPageResult(status=GitHubPageStatus.COMPLETED)]
         self.started_email: Optional[str] = None
         self.started_username: Optional[str] = None
+        self.started_usernames: List[str] = []
         self.started_password: Optional[str] = None
         self.submitted_code: Optional[str] = None
         self.closed = False
@@ -163,6 +165,7 @@ class FakeGitHubRegistrationClient(GitHubRegistrationClient):
 
         self.started_email = email
         self.started_username = username
+        self.started_usernames.append(username)
         self.started_password = password
         return self.results.pop(0)
 
@@ -550,17 +553,60 @@ async def test_flow_accepts_manual_api_key_without_exposing_it() -> None:
     assert api_key not in completed.session.model_dump_json()
 
 
-def test_generated_github_username_matches_current_constraints() -> None:
+def test_generated_github_username_matches_current_constraints(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    验证生成的 GitHub 用户名仅包含字母、数字和单个连字符
+    验证每种 GitHub 用户名模式均自然多样且符合字符约束
+
+    :param monkeypatch (MonkeyPatch): 安全随机模式替换工具
     """
 
-    username = CreateAccountFlow._generate_username()
+    usernames: List[str] = []
+    for pattern in range(4):
+        monkeypatch.setattr(
+            "engine.flow.secrets.randbelow",
+            lambda upper, selected_pattern=pattern: selected_pattern if upper == 4 else 42,
+        )
+        usernames.append(CreateAccountFlow._generate_username())
 
-    assert username.startswith("learner-")
-    assert len(username) == 18
-    assert all(character.isalnum() or character == "-" for character in username)
-    assert "--" not in username
+    assert len(set(usernames)) == 4
+    assert all(not username.startswith("learner-") for username in usernames)
+    assert all(3 <= len(username) <= 39 for username in usernames)
+    assert all(all(character.isalnum() or character == "-" for character in username) for username in usernames)
+    assert all(
+        "--" not in username and not username.startswith("-") and not username.endswith("-") for username in usernames
+    )
+    assert all(username[-1].isdigit() for username in usernames)
+
+
+@pytest.mark.anyio
+async def test_flow_retries_with_new_username_when_github_reports_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    验证 GitHub 用户名被占用时流程自动换名并继续
+
+    :param monkeypatch (MonkeyPatch): Pytest 属性替换工具
+    """
+
+    generated_usernames = iter(["cedar-field451", "river-notes742"])
+    monkeypatch.setattr(CreateAccountFlow, "_generate_username", staticmethod(lambda: next(generated_usernames)))
+    browser = FakeGitHubRegistrationClient(
+        [
+            GitHubPageResult(
+                status=GitHubPageStatus.ERROR,
+                error_code=GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE,
+                error_message="GitHub 用户名不可用",
+            ),
+            GitHubPageResult(status=GitHubPageStatus.COMPLETED),
+        ]
+    )
+    flow = create_test_flow([FakeEmailProvider()], browser)
+
+    result = await flow.start()
+
+    assert result.session.status == FlowStatus.PENDING_PAYMENT
+    assert browser.started_usernames == ["cedar-field451", "river-notes742"]
+    assert result.session.github_username == "river-notes742"
 
 
 @pytest.mark.anyio

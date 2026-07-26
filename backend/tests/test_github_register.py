@@ -3,12 +3,13 @@ from typing import Dict, List, Optional, cast
 import pytest
 from playwright.async_api import Browser, BrowserContext, Page
 from playwright.async_api import Error as BrowserError
+from playwright.async_api import TimeoutError as BrowserTimeoutError
 
 import browser.cloakbrowser_client as cloakbrowser_client_module
 import browser.github_register as github_register_module
 from browser.cloakbrowser_client import CloakBrowserClient, CloakBrowserSession
 from browser.github_register import GitHubRegister
-from browser.models import GitHubPageStatus
+from browser.models import GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE, GitHubPageStatus
 
 
 class FailingCloakBrowserSession(CloakBrowserSession):
@@ -33,18 +34,36 @@ class FakeFormLocator:
     GitHub 当前注册表单控件测试替身
     """
 
-    def __init__(self, *, is_checked: bool = False, fails_on_click: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        is_checked: bool = False,
+        fails_on_click: bool = False,
+        is_visible: bool = True,
+    ) -> None:
         """
         初始化表单控件状态
 
         :param is_checked (bool): 控件是否已勾选
         :param fails_on_click (bool): 点击后是否模拟浏览器错误
+        :param is_visible (bool): 控件是否可见
         """
 
         self.value: Optional[str] = None
         self.is_checked_value = is_checked
         self.fails_on_click = fails_on_click
+        self.is_visible_value = is_visible
         self.was_clicked = False
+
+    @property
+    def first(self) -> "FakeFormLocator":
+        """
+        返回第一个匹配控件
+
+        :return FakeFormLocator: 当前控件
+        """
+
+        return self
 
     async def fill(self, value: str) -> None:
         """
@@ -74,6 +93,23 @@ class FakeFormLocator:
         """
 
         return self.is_checked_value
+
+    async def wait_for(self, state: str, timeout: int) -> None:
+        """
+        等待控件进入可见状态
+
+        :param state (str): 目标状态
+        :param timeout (int): 最大等待毫秒数
+
+        :return None: 无返回值
+
+        :raises BrowserTimeoutError: 控件不可见时模拟等待超时
+        """
+
+        assert state == "visible"
+        del timeout
+        if not self.is_visible_value:
+            raise BrowserTimeoutError("test locator is not visible")
 
     async def uncheck(self, force: bool) -> None:
         """
@@ -109,9 +145,11 @@ class FakeCurrentSignupPage:
     GitHub 当前注册页面测试替身
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, username_unavailable: bool = False) -> None:
         """
         初始化表单控件与页面地址
+
+        :param username_unavailable (bool): 是否显示用户名占用提示
         """
 
         self.url = "https://github.com/signup"
@@ -120,6 +158,7 @@ class FakeCurrentSignupPage:
         self.username = FakeFormLocator()
         self.copilot = FakeFormLocator(is_checked=True)
         self.create_account = FakeFormLocator(fails_on_click=True)
+        self.username_unavailable = FakeFormLocator(is_visible=username_unavailable)
 
     async def goto(self, url: str, wait_until: str, timeout: int) -> None:
         """
@@ -165,6 +204,18 @@ class FakeCurrentSignupPage:
         if role == "checkbox":
             return self.copilot
         return self.create_account
+
+    def get_by_text(self, text: object) -> FakeFormLocator:
+        """
+        返回用户名占用提示
+
+        :param text (object): 文本匹配条件
+
+        :return FakeFormLocator: 用户名占用提示控件
+        """
+
+        del text
+        return self.username_unavailable
 
 
 class FixedPageSession(CloakBrowserSession):
@@ -514,15 +565,36 @@ async def test_current_signup_form_opts_out_of_copilot_before_submit() -> None:
 
     register = GitHubRegister(FixedPageSession(browser_client, page), record_delay)
 
-    result = await register.start_registration("test@example.test", "learner-test", "Secret123456789!")
+    result = await register.start_registration("test@example.test", "river-notes42", "Secret123456789!")
 
     assert result.error_code == "github_form_submit_failed"
     assert page.email.value == "test@example.test"
     assert page.password.value == "Secret123456789!"
-    assert page.username.value == "learner-test"
+    assert page.username.value == "river-notes42"
     assert not page.copilot.is_checked_value
     assert page.create_account.was_clicked
     assert delay_count == 4
+
+
+@pytest.mark.anyio
+async def test_current_signup_form_reports_unavailable_username_before_submit() -> None:
+    """
+    验证 GitHub 用户名被占用时返回稳定错误且不提交表单
+    """
+
+    browser_client = CloakBrowserClient()
+    page = FakeCurrentSignupPage(username_unavailable=True)
+
+    async def skip_delay() -> None:
+        return None
+
+    register = GitHubRegister(FixedPageSession(browser_client, page), skip_delay)
+
+    result = await register.start_registration("test@example.test", "cedar-field451", "Secret123456789!")
+
+    assert result.status == GitHubPageStatus.ERROR
+    assert result.error_code == GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE
+    assert not page.create_account.was_clicked
 
 
 @pytest.mark.anyio
@@ -583,7 +655,7 @@ async def test_browser_launch_failure_has_stable_stage_error() -> None:
     browser_client = CloakBrowserClient()
     register = GitHubRegister(FailingCloakBrowserSession(browser_client))
 
-    result = await register.start_registration("test@example.test", "learner-test", "Secret123!")
+    result = await register.start_registration("test@example.test", "river-notes42", "Secret123!")
 
     assert result.status == GitHubPageStatus.ERROR
     assert result.error_code == "github_browser_launch_failed"

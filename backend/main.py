@@ -79,7 +79,6 @@ def create_app(
         return GitHubRegister(browser_session), OpenCodeLogin(browser_session)
 
     service = CreateAccountService(
-        http_client,
         completion_service.complete,
         browser_factory=create_account_browsers,
         pending_handler=completion_service.persist_pending,

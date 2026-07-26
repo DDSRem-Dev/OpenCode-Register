@@ -30,8 +30,10 @@ DELETE_USERNAME_LABEL = "Your username or email:"
 DELETE_CONFIRMATION_LABEL = "To verify, type delete my account exactly as it appears:"
 DELETE_CONFIRMATION_TEXT = "delete my account"
 DELETE_SUBMIT_BUTTON_NAME = "Cancel plan and delete this account"
-SUDO_PASSWORD_LABEL = "Password"
-SUDO_CONFIRM_BUTTON_NAME = "Confirm"
+SUDO_PASSWORD_SELECTOR = "input#sudo_password, input[name='sudo_password'], input[type='password']"
+SUDO_CONFIRM_BUTTON_SELECTOR = "button[type='submit'].btn-primary.btn-block"
+SUDO_INPUT_SETTLE_MILLISECONDS = 1000
+DELETION_RESULT_TIMEOUT_SECONDS = 60
 
 
 class GitHubAccountCleanup(GitHubCleanupClient):
@@ -186,16 +188,22 @@ class GitHubAccountCleanup(GitHubCleanupClient):
         password = self._password
         if username is None or password is None or not self._is_sudo_page(page, username):
             return self._error("github_cleanup_identity_mismatch", "GitHub sudo 身份与删除目标不一致")
-        password_input = page.get_by_label(SUDO_PASSWORD_LABEL, exact=True)
-        confirm_button = page.get_by_role("button", name=SUDO_CONFIRM_BUTTON_NAME, exact=True)
+        password_input = page.locator(SUDO_PASSWORD_SELECTOR)
+        confirm_button = page.locator(SUDO_CONFIRM_BUTTON_SELECTOR)
+        await password_input.wait_for(state="visible", timeout=15_000)
+        await confirm_button.wait_for(state="visible", timeout=15_000)
         if not await self._has_unique_controls(password_input, confirm_button):
             return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-        await password_input.fill(password.get_secret_value())
+        password_value = password.get_secret_value()
+        await password_input.fill(password_value)
+        await page.wait_for_timeout(SUDO_INPUT_SETTLE_MILLISECONDS)
+        if await password_input.input_value(timeout=15_000) != password_value:
+            return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
         await confirm_button.click(timeout=15_000)
         return await self._wait_for_deleted(page, username)
 
     async def _wait_for_deleted(self, page: Page, username: str) -> GitHubCleanupPageResult:
-        deadline = monotonic() + 15
+        deadline = monotonic() + DELETION_RESULT_TIMEOUT_SECONDS
         while monotonic() < deadline:
             if await self._profile_deleted(page, username):
                 return GitHubCleanupPageResult(status=GitHubCleanupPageStatus.DELETED)

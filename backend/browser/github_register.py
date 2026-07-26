@@ -7,10 +7,11 @@ from urllib.parse import urlparse
 
 from playwright.async_api import Error as BrowserError
 from playwright.async_api import Page
+from playwright.async_api import TimeoutError as BrowserTimeoutError
 
 from browser.base import GitHubRegistrationClient
 from browser.cloakbrowser_client import CloakBrowserSession
-from browser.models import GitHubPageResult, GitHubPageStatus
+from browser.models import GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE, GitHubPageResult, GitHubPageStatus
 from engine.models import ManualInterventionReason
 
 GITHUB_SIGNUP_URL = "https://github.com/signup"
@@ -24,11 +25,13 @@ EMAIL_CODE_FIELD_COUNT = 8
 VISIBLE_CAPTCHA_SELECTORS = "iframe[src*='captcha']:visible, [data-sitekey]:visible, .js-captcha:visible"
 CREATE_ACCOUNT_NAME = "Create account"
 COPILOT_OPT_IN_PATTERN = re.compile(r"Sign up for Copilot Free", re.IGNORECASE)
+USERNAME_UNAVAILABLE_PATTERN = re.compile(r"Username .+ is not available", re.IGNORECASE)
 COMPLETED_PATHS = {"/", "/dashboard"}
 PHONE_TEXT_PATTERN = re.compile(r"phone|手机号|mobile verification", re.IGNORECASE)
 EMAIL_CODE_PATTERN = re.compile(r"^[0-9]{8}$")
 MIN_ACTION_DELAY_MILLISECONDS = 500
 ACTION_DELAY_RANGE_MILLISECONDS = 1_501
+USERNAME_VALIDATION_TIMEOUT_MILLISECONDS = 3_000
 
 
 class GitHubRegister(GitHubRegistrationClient):
@@ -97,6 +100,8 @@ class GitHubRegister(GitHubRegistrationClient):
             return self._error("github_copilot_opt_out_failed", "无法取消 GitHub 附加产品选项")
         try:
             await self._action_delay()
+            if await self._username_is_unavailable(page):
+                return self._error(GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE, "GitHub 用户名不可用")
             await page.get_by_role("button", name=CREATE_ACCOUNT_NAME, exact=True).click(timeout=15_000)
         except BrowserError:
             return self._error("github_form_submit_failed", "无法提交 GitHub 注册表单")
@@ -217,6 +222,17 @@ class GitHubRegister(GitHubRegistrationClient):
         if urlparse(page.url).path in COMPLETED_PATHS:
             return GitHubPageResult(status=GitHubPageStatus.COMPLETED)
         return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
+
+    async def _username_is_unavailable(self, page: Page) -> bool:
+        unavailable_message = page.get_by_text(USERNAME_UNAVAILABLE_PATTERN).first
+        try:
+            await unavailable_message.wait_for(
+                state="visible",
+                timeout=USERNAME_VALIDATION_TIMEOUT_MILLISECONDS,
+            )
+        except BrowserTimeoutError:
+            return False
+        return True
 
     @staticmethod
     def _is_github_page(page: Page) -> bool:

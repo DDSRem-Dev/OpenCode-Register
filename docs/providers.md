@@ -1,51 +1,45 @@
-# DuckMail 邮箱 Provider
+# Temp-Mail 邮箱 Provider
 
 Python 后端提供统一的异步邮箱接口。工作流只依赖
-`backend/providers/base.py` 中的 `EmailProvider`，DuckMail 响应、令牌和协议差异不会离开
-`providers/` 边界。
+`backend/providers/base.py` 中的 `EmailProvider`；Temp-Mail 的页面结构、浏览器会话和邮件内容不会离开
+`browser/` 与 `providers/` 边界。
 
 ## 支持范围
 
-当前唯一支持的邮箱 provider 是 `duckmail`，服务地址固定为 `https://duckmail.pro`。
-应用不再接收 provider 名称、优先级、自托管地址或第三方 provider 凭据。
+当前唯一支持的邮箱 provider 是 `temp_mail`，页面地址固定为 `https://temp-mail.org/en/`。
+应用不接收 provider 名称、优先级、自托管地址或第三方 provider 凭据。
 
-`DuckMailProvider` 实现以下操作：
+`TempMailBrowser` 与 `TempMailProvider` 共同实现以下操作：
 
-- `create_email()`：调用 `POST /api/auth/register`，随机生成用户名、密码和显示名称，并返回规范化的
-  `@duckmail.pro` 地址。
-- `wait_for_code(email, timeout)`：调用 `GET /api/emails?folder=inbox&limit=50`，只检查目标收件地址和
-  `@github.com` 发件人，并提取 GitHub 八位数字验证码。
-- `dispose(email)`：调用 `DELETE /api/auth/account`，用当前会话的 Bearer 令牌和账户密码尽力删除账户，
-  随后清除本地会话。
+- `create_email()`：在独立 CloakBrowser 上下文中打开 Temp-Mail，从唯一的只读 `#mail` 控件读取并校验地址。
+- `wait_for_code(email, timeout)`：点击页面唯一的 `Refresh` 控件刷新同一上下文的收件箱，不执行整页刷新；
+  只打开发件地址以 `@github.com` 结尾的邮件，
+  从主题和正文提取 GitHub 八位数字验证码。
+- `dispose(email)`：关闭该邮箱的浏览器上下文并清除 provider 内存引用。Temp-Mail 邮箱由站点按其生命周期
+  自动失效，应用不保留 cookie、令牌或邮箱内容。
 
-邮箱密码和访问令牌只保存在 provider 实例的内存会话中，不进入流程快照、日志、异常、模型 `repr`
-或前端。轮询可通过取消调用方的异步任务终止；连续请求失败和总等待时间都有明确上限。
+Temp-Mail 与 GitHub/OpenCode 使用不同的浏览器上下文，邮箱页面导航不会覆盖注册页面。轮询可通过取消调用方的
+异步任务终止；每次点击刷新后为页面保留 5 秒加载窗口，空收件箱再等待 5 秒才进入下一轮，避免连续点击中断
+站点加载。连续页面读取失败和总等待时间都有明确上限。
 
-## 协议边界
+## 浏览器与协议边界
 
-配置模型位于 `backend/providers/models.py`，未知字段会被拒绝。provider 只允许无端口、路径、查询参数、
-用户信息或片段的 `https://duckmail.pro` 源地址。第三方 JSON 会立即转换为 Pydantic 模型，畸形注册或
-邮件列表响应会产生净化后的 `EmailProviderResponseError`，不会传递原始响应或邮件正文。
+所有 Temp-Mail 选择器位于 `backend/browser/temp_mail.py`。适配器只允许无端口、无用户信息的
+`https://temp-mail.org/en/` 页面及其 `/en/` 子路径，并在导航和打开邮件后重新校验主机。页面返回的地址会
+立即规范化，邮件会转换为 Pydantic `TempMailMessage`，原始 DOM、Page 和 Locator 不进入流程层。
+收件箱首行是站点保留的隐藏模板；适配器只接受带 `data-mail-id` 的实际邮件链接，并从
+`.inbox-data-content-intro` 读取打开后的正文。
 
-注册响应必须同时满足以下条件：
-
-- `user.username` 与本次随机生成的用户名一致；
-- `user.email` 等于该用户名对应的 `@duckmail.pro` 地址；
-- `token` 非空。
-
-删除操作只针对当前 provider 实例中与邮箱地址精确匹配的会话。它属于流程资源回收；显式面向用户的
-远端账户删除功能仍需遵守架构中的人工确认边界。
+收件箱最多检查 50 封邮件。页面适配器与 provider 都校验 GitHub 发件域，非 GitHub 邮件即使包含八位数字也不会
+被接受。验证码不进入 `FlowSession`、HTTP、WebSocket、日志、截图或持久化模型。
 
 ## 测试与验证
 
-单元测试使用 `httpx.MockTransport` 覆盖注册、收件箱查询、验证码筛选、账户删除、畸形响应、主机校验和
-超时，不访问真实 DuckMail 服务，也不创建或删除真实账户。线上协议可用性需要受控人工验证。
+单元测试使用 fake Page、Locator 和 `TempMailMailboxClient` 覆盖邮箱读取、邮件打开、发件人过滤、验证码提取、
+主机拒绝、超时和会话释放，不访问真实 Temp-Mail，也不创建 GitHub 账号。线上页面契约仅允许受控人工验证。
 
 ## 架构变更说明
 
-本次变更删除 CloudMail、Cloudflare、MailNest、YYDS 和 Mail.tm 兼容实现，同时删除 provider 工厂和
-优先级请求字段。原因是产品当前只允许 DuckMail，保留多 provider 选择会扩大凭据和外部主机的攻击面。
-
-该变更不修改当前数据库结构；尚未落地的旧 provider 优先级设置不再实施。REST 创建流程请求不再
-接受 provider 配置，因此旧客户端必须改为发送无请求体的 `POST /api/accounts`。回滚需要同时恢复旧实现、
-类型模型、工厂、API 请求字段、前端调用和对应测试，不能只恢复其中一层。
+本次变更删除 DuckMail HTTP 实现和响应模型，改为 Temp-Mail 浏览器实现。provider 抽象、无请求体的
+`POST /api/accounts` 和单 provider 策略保持不变；数据库不需要迁移，历史账号中的 `email_provider` 仅作为
+来源记录保留。回滚必须同时恢复浏览器适配器、provider、模型、服务构造、测试和文档。

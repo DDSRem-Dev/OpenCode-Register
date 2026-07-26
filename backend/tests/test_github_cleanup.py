@@ -4,6 +4,7 @@ import pytest
 from playwright.async_api import Page
 from pydantic import SecretStr
 
+import browser.github_cleanup as github_cleanup_module
 from browser.cloakbrowser_client import CloakBrowserSession
 from browser.github_cleanup import (
     ACTOR_LOGIN_SELECTOR,
@@ -18,8 +19,9 @@ from browser.github_cleanup import (
     LOGIN_ERROR_SELECTOR,
     LOGIN_USERNAME_SELECTOR,
     PASSWORD_SELECTOR,
-    SUDO_CONFIRM_BUTTON_NAME,
-    SUDO_PASSWORD_LABEL,
+    SUDO_CONFIRM_BUTTON_SELECTOR,
+    SUDO_INPUT_SETTLE_MILLISECONDS,
+    SUDO_PASSWORD_SELECTOR,
     VISIBLE_CAPTCHA_SELECTORS,
     GitHubAccountCleanup,
 )
@@ -59,8 +61,12 @@ class FakeLocator:
             return 1 if self._page.has_captcha else 0
         if self._selector in {DELETE_USERNAME_LABEL, DELETE_CONFIRMATION_LABEL}:
             return 1 if self._page.delete_dialog_open else 0
-        if self._selector == SUDO_PASSWORD_LABEL:
-            return 1 if self._page.url.endswith(f"/users/{self._page.expected_username}") else 0
+        if self._selector == SUDO_PASSWORD_SELECTOR:
+            is_sudo = self._page.url.endswith(f"/users/{self._page.expected_username}")
+            return 1 if is_sudo and self._page.sudo_controls_ready else 0
+        if self._selector == SUDO_CONFIRM_BUTTON_SELECTOR:
+            is_sudo = self._page.url.endswith(f"/users/{self._page.expected_username}")
+            return 1 if is_sudo and self._page.sudo_controls_ready else 0
         return 1
 
     async def fill(self, value: str) -> None:
@@ -73,6 +79,51 @@ class FakeLocator:
         """
 
         self._page.filled[self._selector] = value
+
+    async def input_value(self, timeout: int) -> str:
+        """
+        返回当前输入框值
+
+        :param timeout (int): 浏览器读取超时
+
+        :return str: 当前输入框值
+        """
+
+        assert timeout == 15_000
+        return self._page.filled.get(self._selector, "")
+
+    async def wait_for(self, state: str, timeout: int) -> None:
+        """
+        模拟等待 sudo 控件完成渲染
+
+        :param state (str): 目标控件状态
+        :param timeout (int): 浏览器等待超时
+
+        :return None: 无返回值
+        """
+
+        assert state == "visible"
+        assert timeout == 15_000
+        if self._selector in {SUDO_PASSWORD_SELECTOR, SUDO_CONFIRM_BUTTON_SELECTOR}:
+            self._page.sudo_controls_ready = True
+
+    async def click(self, timeout: int) -> None:
+        """
+        模拟 sudo 提交按钮点击
+
+        :param timeout (int): 浏览器点击超时
+
+        :return None: 无返回值
+        """
+
+        assert timeout == 15_000
+        assert self._selector == SUDO_CONFIRM_BUTTON_SELECTOR
+        assert self._page.sudo_wait_milliseconds >= SUDO_INPUT_SETTLE_MILLISECONDS
+        if self._page.sudo_invalid:
+            return
+        self._page.actor_login = None
+        self._page.profile_status = 404
+        self._page.url = "https://github.com/"
 
     async def get_attribute(self, name: str) -> Optional[str]:
         """
@@ -113,8 +164,6 @@ class FakeButton:
             return 1 if self._page.delete_dialog_open else 0
         if self._name == DELETE_ACCOUNT_BUTTON_NAME:
             return self._page.delete_button_count
-        if self._name == SUDO_CONFIRM_BUTTON_NAME:
-            return 1 if self._page.url.endswith(f"/users/{self._page.expected_username}") else 0
         return 1
 
     async def click(self, timeout: int) -> None:
@@ -142,12 +191,7 @@ class FakeButton:
             assert self._page.filled[DELETE_CONFIRMATION_LABEL] == DELETE_CONFIRMATION_TEXT
             self._page.url = f"https://github.com/users/{self._page.expected_username}"
             return
-        assert self._name == SUDO_CONFIRM_BUTTON_NAME
-        if self._page.sudo_invalid:
-            return
-        self._page.actor_login = None
-        self._page.profile_status = 404
-        self._page.url = "https://github.com/"
+        raise AssertionError(f"未处理的测试按钮：{self._name}")
 
 
 class FakeProfileResponse:
@@ -232,6 +276,8 @@ class FakeCleanupPage:
         self.delete_dialog_open = False
         self.expected_username = ""
         self.profile_status = profile_status
+        self.sudo_controls_ready = False
+        self.sudo_wait_milliseconds = 0
         self.filled: Dict[str, str] = {}
         self.request = FakeRequestContext(self)
 
@@ -251,6 +297,17 @@ class FakeCleanupPage:
         self.url = url
         if url == GITHUB_ADMIN_URL and self.actor_login is not None:
             self.url = f"https://github.com{GITHUB_ADMIN_PATH}"
+
+    async def wait_for_timeout(self, timeout: int) -> None:
+        """
+        记录 sudo 密码填写后的稳定等待
+
+        :param timeout (int): 等待毫秒数
+
+        :return None: 无返回值
+        """
+
+        self.sudo_wait_milliseconds += timeout
 
     def locator(self, selector: str) -> FakeLocator:
         """
@@ -274,6 +331,7 @@ class FakeCleanupPage:
         """
 
         assert exact is True
+        assert text in {DELETE_USERNAME_LABEL, DELETE_CONFIRMATION_LABEL}
         return FakeLocator(self, text)
 
     def get_by_role(self, role: str, name: str, exact: bool) -> FakeButton:
@@ -292,7 +350,6 @@ class FakeCleanupPage:
             "Sign in",
             DELETE_ACCOUNT_BUTTON_NAME,
             DELETE_SUBMIT_BUTTON_NAME,
-            SUDO_CONFIRM_BUTTON_NAME,
         }
         assert exact is True
         return FakeButton(self, name)
@@ -347,7 +404,7 @@ async def test_github_cleanup_verifies_identity_and_submits_confirmed_deletion()
     assert page.filled[PASSWORD_SELECTOR] == "Fake-GitHub-Password!"
     assert page.filled[DELETE_USERNAME_LABEL] == "cleanup-user"
     assert page.filled[DELETE_CONFIRMATION_LABEL] == DELETE_CONFIRMATION_TEXT
-    assert page.filled[SUDO_PASSWORD_LABEL] == "Fake-GitHub-Password!"
+    assert page.filled[SUDO_PASSWORD_SELECTOR] == "Fake-GitHub-Password!"
     assert "Fake-GitHub-Password!" not in result.model_dump_json()
 
 
@@ -412,5 +469,21 @@ async def test_github_cleanup_only_accepts_profile_not_found_as_deleted() -> Non
     page.url = "https://github.com/"
 
     result = await cleanup.inspect_after_manual()
+
+    assert result.status == GitHubCleanupPageStatus.DELETED
+
+
+@pytest.mark.anyio
+async def test_github_cleanup_waits_for_delayed_remote_deletion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    验证远端删除状态超过十五秒才生效时仍会自动完成
+    """
+
+    times = iter([0.0, 16.0])
+    monkeypatch.setattr(github_cleanup_module, "monotonic", lambda: next(times))
+    page = FakeCleanupPage(profile_status=404)
+    cleanup = GitHubAccountCleanup(FakeCleanupSession(page))
+
+    result = await cleanup._wait_for_deleted(cast(Page, page), "cleanup-user")
 
     assert result.status == GitHubCleanupPageStatus.DELETED

@@ -29,7 +29,7 @@ def _seed_account(database_path: Path, master_password: str) -> None:
             opencode_provider_name="opencode-go",
             opencode_workspace_id="wrk_account",
             opencode_api_key=SecretStr("sk-" + "q" * 64),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="account@example.test",
         )
     )
@@ -277,7 +277,7 @@ async def test_pending_account_list_is_masked_and_has_no_opencode_credentials(tm
             github_username="pending-api-user",
             github_email="pending-api@example.test",
             github_password=SecretStr("Fake-Pending-Api-Password!"),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="pending-api@example.test",
         )
     )

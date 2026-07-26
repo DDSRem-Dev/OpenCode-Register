@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from engine.models import ManualInterventionReason
 
+GITHUB_USERNAME_UNAVAILABLE_ERROR_CODE = "github_username_unavailable"
+
 
 class GitHubPageStatus(StrEnum):
     """

@@ -20,9 +20,9 @@ import {
 const manualSession = {
   flow_id: "flow-test-1",
   status: "manual_verify",
-  email_provider: "duckmail",
+  email_provider: "temp_mail",
   temp_email: "flow@example.test",
-  github_username: "learner-test",
+  github_username: "river-notes42",
   account_id: null,
   opencode_workspace_id: null,
   api_key_captured: false,

@@ -84,7 +84,7 @@ def _vault(tmp_path: Path) -> AccountVaultService:
             opencode_provider_name="opencode-go",
             opencode_workspace_id="wrk_cleanupprimary",
             opencode_api_key=SecretStr("sk-" + "p" * 64),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="cleanup-primary@example.test",
         )
     )
@@ -97,7 +97,7 @@ def _vault(tmp_path: Path) -> AccountVaultService:
             opencode_provider_name="opencode-go2",
             opencode_workspace_id="wrk_cleanupsecondary",
             opencode_api_key=SecretStr("sk-" + "s" * 64),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="cleanup-secondary@example.test",
         )
     )
@@ -177,7 +177,7 @@ async def test_cleanup_deletes_pending_account_without_touching_pool_config(tmp_
             github_username="pending-cleanup-user",
             github_email="pending-cleanup@example.test",
             github_password=SecretStr("Fake-Pending-Cleanup-Password!"),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="pending-cleanup@example.test",
         )
     )

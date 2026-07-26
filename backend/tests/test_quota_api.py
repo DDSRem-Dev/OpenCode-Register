@@ -27,7 +27,7 @@ def _vault(tmp_path: Path, *, unlock: bool = True) -> AccountVaultService:
             opencode_provider_name="opencode-go",
             opencode_workspace_id="wrk_quotaapi",
             opencode_api_key=SecretStr("sk-" + "z" * 64),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="quota-api@example.test",
         )
     )

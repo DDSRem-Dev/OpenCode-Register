@@ -1,18 +1,17 @@
 import asyncio
 from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional, Set, Tuple
 
-import httpx
-
 from browser.base import GitHubRegistrationClient, OpenCodeAutomationClient
 from browser.cloakbrowser_client import CloakBrowserClient
 from browser.github_register import GitHubRegister
 from browser.opencode_login import OpenCodeLogin
+from browser.temp_mail import TempMailBrowser
 from engine.events import FlowEvent, create_flow_event
 from engine.flow import CreateAccountFlow, FlowTransitionError
 from engine.models import AccountCompletionData, FlowSession, FlowStatus, PendingAccountData
 from providers.base import EmailProvider
-from providers.integrations.duckmail import DuckMailProvider
-from providers.models import DuckMailProviderSettings
+from providers.integrations.temp_mail import TempMailProvider
+from providers.models import TempMailProviderSettings
 from storage.models import AccountStatus
 from storage.screenshots import ScreenshotStore
 
@@ -33,15 +32,15 @@ class CreateAccountService:
     """
     账号创建流程生命周期服务
 
-    服务统一拥有共享 HTTP 客户端、活动流程和所有后台任务
+    服务统一拥有共享浏览器、活动流程和所有后台任务
     """
 
     def __init__(
         self,
-        http_client: httpx.AsyncClient,
         completion_handler: Callable[[AccountCompletionData], Awaitable[str]],
         manual_timeout_seconds: float = 300,
         browser_factory: Optional[Callable[[], Tuple[GitHubRegistrationClient, OpenCodeAutomationClient]]] = None,
+        provider_factory: Optional[Callable[[], EmailProvider]] = None,
         pending_handler: Optional[Callable[[PendingAccountData], Awaitable[str]]] = None,
         pending_status_handler: Optional[Callable[[str, AccountStatus], Awaitable[None]]] = None,
         screenshot_store: Optional[ScreenshotStore] = None,
@@ -49,16 +48,15 @@ class CreateAccountService:
         """
         初始化账号创建流程服务
 
-        :param http_client (AsyncClient): provider 共用的异步 HTTP 客户端
         :param completion_handler (Callable): 账号配置与持久化完成边界
         :param manual_timeout_seconds (float): 人工介入最大等待秒数
         :param browser_factory (Callable): 可选的浏览器边界构造函数
+        :param provider_factory (Callable): 可选的临时邮箱 provider 构造函数
         :param pending_handler (Callable): GitHub 注册完成后的持久化边界
         :param pending_status_handler (Callable): 未完成账号状态更新边界
         :param screenshot_store (ScreenshotStore): 可选的已遮罩截图存储
         """
 
-        self._http_client = http_client
         self._completion_handler = completion_handler
         self._pending_handler = pending_handler
         self._pending_status_handler = pending_status_handler
@@ -68,12 +66,20 @@ class CreateAccountService:
         self._manual_timeout_tasks: Dict[str, asyncio.Task[None]] = {}
         self._subscribers: Dict[str, Set[asyncio.Queue[FlowEvent]]] = {}
         self._manual_timeout_seconds = manual_timeout_seconds
-        self._cloakbrowser_client: Optional[CloakBrowserClient] = None
+        self._account_browser_client: Optional[CloakBrowserClient] = None
+        self._email_browser_client: Optional[CloakBrowserClient] = None
         if browser_factory is None:
-            self._cloakbrowser_client = CloakBrowserClient()
+            self._account_browser_client = CloakBrowserClient()
+        if provider_factory is None:
+            self._email_browser_client = CloakBrowserClient(headless=True)
+        if browser_factory is None:
             self._browser_factory = self._create_browsers
         else:
             self._browser_factory = browser_factory
+        if provider_factory is None:
+            self._provider_factory = self._create_provider
+        else:
+            self._provider_factory = provider_factory
 
     def create(self) -> FlowSession:
         """
@@ -82,7 +88,7 @@ class CreateAccountService:
         :return FlowSession: 新流程的初始权威快照
         """
 
-        providers: List[EmailProvider] = [DuckMailProvider(self._http_client, DuckMailProviderSettings())]
+        providers: List[EmailProvider] = [self._provider_factory()]
         github_client, opencode_client = self._browser_factory()
         flow = CreateAccountFlow(
             providers,
@@ -250,8 +256,10 @@ class CreateAccountService:
                     await flow.cancel()
                 except FlowTransitionError:
                     continue
-        if self._cloakbrowser_client is not None:
-            await self._cloakbrowser_client.close()
+        if self._account_browser_client is not None:
+            await self._account_browser_client.close()
+        if self._email_browser_client is not None:
+            await self._email_browser_client.close()
 
     def _start_task(self, flow_id: str, operation: Callable[[], Awaitable[object]]) -> None:
         self._tasks[flow_id] = asyncio.create_task(self._run(flow_id, operation))
@@ -327,7 +335,22 @@ class CreateAccountService:
         :raises RuntimeError: CloakBrowser 管理器未初始化
         """
 
-        if self._cloakbrowser_client is None:
+        if self._account_browser_client is None:
             raise RuntimeError("CloakBrowser 浏览器管理器未初始化")
-        browser_session = self._cloakbrowser_client.create_session()
+        browser_session = self._account_browser_client.create_session()
         return GitHubRegister(browser_session), OpenCodeLogin(browser_session)
+
+    def _create_provider(self) -> EmailProvider:
+        """
+        为账号流程创建独立的 Temp-Mail 浏览器 provider
+
+        :return EmailProvider: 使用独立浏览器上下文的 Temp-Mail provider
+
+        :raises RuntimeError: CloakBrowser 管理器未初始化
+        """
+
+        if self._email_browser_client is None:
+            raise RuntimeError("Temp-Mail 后台浏览器管理器未初始化")
+        settings = TempMailProviderSettings()
+        mailbox_client = TempMailBrowser(self._email_browser_client.create_session(), settings)
+        return TempMailProvider(mailbox_client, settings.poll_interval_seconds)

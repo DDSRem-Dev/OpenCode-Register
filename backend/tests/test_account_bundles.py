@@ -34,7 +34,7 @@ def _create_account(database_path: Path, master_password: str, suffix: int) -> A
             opencode_provider_name="opencode-go" if suffix == 1 else f"opencode-go{suffix}",
             opencode_workspace_id=f"wrk_bundle{suffix}",
             opencode_api_key=SecretStr("sk-" + str(suffix) * 64),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email=f"bundle-{suffix}@example.test",
         )
     )
@@ -74,7 +74,7 @@ def test_bundle_round_trip_preserves_pending_account_without_opencode_fields(tmp
             github_username="pending-bundle-user",
             github_email="pending-bundle@example.test",
             github_password=SecretStr("Fake-Pending-Bundle-Password!"),
-            email_provider="duckmail",
+            email_provider="temp_mail",
             temp_email="pending-bundle@example.test",
         )
     )

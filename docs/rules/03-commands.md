@@ -50,7 +50,7 @@ npm run dev
 
 The same environment variable can be applied to `npm run tauri dev`. Sandbox
 mode redirects the SQLite vault and all three OpenCode/OMO files beneath the
-specified directory. It does not mock GitHub, DuckMail, OpenCode, or payment.
+specified directory. It does not mock GitHub, Temp-Mail, OpenCode, or payment.
 
 Health probe:
 

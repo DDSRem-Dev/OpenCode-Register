@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+from typing import List
+
+from providers.models import TempMailMessage
 
 
 class EmailProvider(ABC):
@@ -45,6 +48,40 @@ class EmailProvider(ABC):
         尽力释放临时邮箱资源
 
         :param email (str): 临时邮箱地址
+
+        :return None: 无返回值
+        """
+
+
+class TempMailMailboxClient(ABC):
+    """
+    Temp-Mail 浏览器邮箱边界
+    """
+
+    @abstractmethod
+    async def create_mailbox(self) -> str:
+        """
+        打开 Temp-Mail 并读取当前临时邮箱
+
+        :return str: 页面生成的临时邮箱地址
+
+        :raises EmailProviderError: 页面不可用或返回无效邮箱
+        """
+
+    @abstractmethod
+    async def read_messages(self) -> List[TempMailMessage]:
+        """
+        刷新收件箱并读取可信结构中的邮件
+
+        :return List: 当前收件箱邮件
+
+        :raises EmailProviderError: 页面不可用或结构无效
+        """
+
+    @abstractmethod
+    async def close(self) -> None:
+        """
+        关闭临时邮箱浏览器会话
 
         :return None: 无返回值
         """

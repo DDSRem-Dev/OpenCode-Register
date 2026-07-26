@@ -8,13 +8,15 @@ Python 后端提供可暂停的 GitHub 注册流程，并由 React 工作台显�
 
 - `backend/browser/cloakbrowser_client.py` 由服务级管理器共享一个 CloakBrowser Browser，并为每个流程创建隔离的
   Context 和 Page；关闭流程只释放其 Context，服务关闭时才释放共享 Browser。
-- `backend/browser/github_register.py` 独占 GitHub 主机校验、注册选择器和页面状态识别。
+- `backend/browser/github_register.py` 独占 GitHub 主机校验、注册选择器和页面状态识别；
+  `backend/browser/temp_mail.py` 在独立上下文中读取邮箱和 GitHub 邮件。
 - `backend/engine/flow.py` 管理从邮箱创建到密钥采集的状态转换、人工暂停、恢复和取消。
 - `backend/engine/service.py` 跟踪全部后台任务，并在服务关闭时回收浏览器和邮箱资源。
 - `backend/api/websocket.py` 为流程和人工介入频道推送版本化事件及初始权威快照。
 - `src/pages/CreateFlow.tsx` 读取后端权威快照；`ManualIntervention` 只提交用户确认。
 
-密码和邮箱验证码不会出现在 `FlowSession`、HTTP 响应或前端状态中。CAPTCHA、手机号验证、
+密码和邮箱验证码不会出现在 `FlowSession`、HTTP 响应或前端状态中。邮件验证码由 Temp-Mail 浏览器读取并自动
+提交；CAPTCHA、手机号验证、
 页面等待超时和未知页面均进入 `manual_verify`，用户必须在可见浏览器中亲自处理。人工介入默认
 等待 300 秒；超时后流程进入 `error` 并释放浏览器与临时邮箱资源。
 
@@ -37,7 +39,7 @@ idle -> creating_email -> github_register -> github_email_verify -> opencode_log
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
-| `POST` | `/api/accounts` | 无请求体，固定使用 DuckMail，返回 `202` 并异步启动流程 |
+| `POST` | `/api/accounts` | 无请求体，固定使用 Temp-Mail，返回 `202` 并异步启动流程 |
 | `GET` | `/api/flow/{flow_id}` | 返回当前权威 `FlowSession` 快照 |
 | `GET` | `/api/flow/{flow_id}/screenshot/{screenshot_id}` | 启用截图后读取当前流程拥有的已遮罩 PNG；响应禁止缓存 |
 | `POST` | `/api/flow/{flow_id}/resume` | 恢复等待人工处理的流程 |

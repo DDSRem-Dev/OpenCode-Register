@@ -12,7 +12,7 @@ OpenCode 当前通过 GitHub / Google OAuth 登录，OpenCode Go 需要用户按
 
 **核心原则**：
 - 支付必须用户手动完成（仅自动跳转页面）。
-- 所有验证码 / 风控验证均人工介入，不做自动化绕过。
+- GitHub 邮件投递码可自动读取；CAPTCHA、手机号、设备验证与未知风控均人工介入，不做自动化绕过。
 - 账号失效时同时清理本地记录和 GitHub 账号。
 - 续费时不再续费旧账号，而是创建全新账号走完整流程。
 
@@ -24,7 +24,7 @@ OpenCode 当前通过 GitHub / Google OAuth 登录，OpenCode Go 需要用户按
 | 可扩展 | 邮箱边界保留稳定接口，浏览器自动化策略可插拔 |
 | 安全 | API Key、GitHub 凭据本地加密存储，支持导出加密包 |
 | 可控 | 每个关键步骤均可暂停等待人工确认 |
-| 合规边界 | 不自动支付、不自动解验证码、不伪造身份信息 |
+| 合规边界 | 不自动支付、不处理安全挑战、不伪造身份信息 |
 
 ## 3. 技术栈
 
@@ -115,13 +115,14 @@ OpenCode-Register/
 │   ├── browser/
 │   │   ├── cloakbrowser_client.py
 │   │   ├── github_register.py
+│   │   ├── temp_mail.py       # Temp-Mail 页面与选择器
 │   │   ├── opencode_login.py
 │   │   ├── opencode_quota.py  # 后台浏览器额度抓取
 │   │   └── github_cleanup.py  # GitHub 身份核对与删除验证
 │   ├── providers/
 │   │   ├── base.py            # 邮箱 provider 抽象基类
 │   │   └── integrations/
-│   │       └── duckmail.py    # duckmail.pro 唯一邮箱实现
+│   │       └── temp_mail.py   # Temp-Mail 邮箱生命周期与验证码解析
 │   ├── storage/
 │   │   ├── db.py              # SQLite 连接
 │   │   ├── models.py          # SQLAlchemy / 数据模型
@@ -147,13 +148,13 @@ OpenCode-Register/
 ```
 1. 用户在前端点击「新建账号」
 2. 后端随机生成 GitHub 用户名和密码（保留到 SQLite，后续清理账号时使用）
-3. 后端通过 `duckmail.pro` 创建临时邮箱账户
+3. 后端在独立 CloakBrowser 上下文打开 `https://temp-mail.org/en/`，读取页面生成的临时邮箱
 4. 打开 CloakBrowser 可见浏览器窗口（headless=False）
 5. 跳转 GitHub 注册页（https://github.com/signup），填写邮箱、密码、用户名
-   - 用户名：字母前缀 + 单个连字符 + 数字/字母，如 learner-abc123
+   - 用户名：从中性词组生成多种无固定前缀的 handle，可选单个连字符和数字后缀
    - 密码：随机强密码
    - 操作间加入随机延迟（500ms-2000ms）
-6. 点击「Create account」，若页面出现验证码 / 风控 → 暂停流程，弹出人工介入面板
+6. 点击「Create account」，若页面出现 CAPTCHA、手机号或未知风控 → 暂停流程，弹出人工介入面板
 7. 用户完成验证后点击「继续」
 8. 后端轮询临时邮箱，读取 GitHub 8 位验证码，逐位填入表单
 9. 点击「Continue」；若 GitHub 跳转登录页，使用本流程内存中的生成凭据完成首次登录
@@ -242,6 +243,7 @@ OpenCode-Register/
 
 - `CloakBrowserClient`：单例管理浏览器实例，默认 `headless=False`（便于人工介入）。
 - `GitHubRegister`：注册流程、表单填写、验证码检测。
+- `TempMailBrowser`：使用独立上下文读取邮箱地址、刷新收件箱并打开 GitHub 邮件。
 - `OpenCodeLogin`：GitHub OAuth 登录、API Key 读取。
 - `PaymentNavigator`：跳转到 OpenCode 支付页。
 
@@ -257,10 +259,10 @@ class EmailProvider(ABC):
     async def dispose(self, email: str) -> None: ...
 ```
 
-- 当前只有 `integrations/duckmail.py`，固定连接 `https://duckmail.pro`。
+- 当前只有 `integrations/temp_mail.py`，固定使用 `https://temp-mail.org/en/` 浏览器页面。
 - 保留 `EmailProvider` 接口用于隔离流程与第三方协议，不提供运行时选择或优先级配置。
-- provider 随机生成 DuckMail 用户名和密码，密码与访问令牌只在流程内存会话中保留；释放资源时调用
-  DuckMail 删除账户接口。
+- Temp-Mail 与 GitHub/OpenCode 使用不同的浏览器上下文；provider 释放资源时关闭邮箱上下文，不保存
+  cookie、邮件正文或验证码。
 
 #### 7.2.4 数据层 `storage/`
 
@@ -387,7 +389,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 
 沙盒目录下固定使用 `app-data/accounts.db`、`opencode-data/auth.json`、
 `opencode-config/opencode.json` 和 `opencode-config/oh-my-openagent.json`。沙盒模式只隔离本地文件，
-不会模拟或绕过 GitHub、DuckMail、OpenCode、人工验证与支付边界。
+不会模拟或绕过 GitHub、Temp-Mail、OpenCode、人工验证与支付边界。
 
 `auto_switch_pool` 由 OMO 配置负责。后台调度只刷新额度且绝不主动删除账号；只有用户重新输入精确 GitHub 用户名后，
 清理流程才自动提交远端删除。安全挑战与未知页面不会自动处理。
@@ -407,7 +409,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/accounts` | 账号列表 |
-| POST | `/api/accounts` | 开始新建账号；无请求体，固定使用 DuckMail |
+| POST | `/api/accounts` | 开始新建账号；无请求体，固定使用 Temp-Mail |
 | GET | `/api/accounts/{id}` | 账号详情 |
 | DELETE | `/api/accounts/{id}` | 删除账号并清理 GitHub |
 | POST | `/api/accounts/{id}/quota/refresh` | 使用后台浏览器刷新单账号额度 |
@@ -449,7 +451,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 后端检测到以下情况时，立即暂停流程并请求人工介入：
 
 - 页面出现 CAPTCHA / reCAPTCHA / hcaptcha
-- GitHub 要求验证手机号 / 邮箱验证码
+- GitHub 要求 CAPTCHA、手机号、设备验证或未知安全验证
 - 页面出现未知阻断提示
 - 流程步骤超时
 - 用户主动点击「暂停」
@@ -476,7 +478,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 
 - 默认使用 `headless=False`，让用户直接看到浏览器窗口。
 - 显式启用后，前端可通过受控 GET 接口展示 GitHub 人工介入点的已遮罩截图。
-- 截图默认关闭且付款页面永不捕获；用户始终在可见浏览器窗口中完成验证码和风险验证。
+- 截图默认关闭且付款页面永不捕获；用户始终在可见浏览器窗口中完成安全挑战和风险验证。
 
 ## 11. 号池机制
 
@@ -773,7 +775,7 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
 13. **OMO fallback 优先级**：新账号加入 `fallback_models` 链末尾，兼容现有配置，操作前自动备份。
 14. **GitHub 删除**：远端账号无需备份；用户重新输入完整用户名后，程序核对精确身份并自动提交删除。
 15. **Chromium 下载**：首次启动时自动下载。
-16. **临时邮箱支持范围**：`duckmail.pro` 是当前唯一支持的邮箱服务，不提供其他 provider 备选或优先级配置。
+16. **临时邮箱支持范围**：`https://temp-mail.org/en/` 是当前唯一支持的邮箱页面，不提供其他 provider 备选或优先级配置。
 17. **OpenCode Go 模型来源**：官方 `/zen/go/v1/models` 决定当前可用 ID，Anomaly 的 Models.dev 结构化
     目录补齐显示名和模型级 AI SDK；两者不一致或失败时保留现有配置。
 
@@ -868,13 +870,16 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
   远端已删除而本地清理失败时保留 `remote_deleted`，下次重试不再登录 GitHub；不得通过回滚数据库状态假装
   远端账号仍存在。
 
-### 17.4 DuckMail 单 Provider 决策
+### 17.4 Temp-Mail 单 Provider 决策
 
-- **原因**：当前产品只需要 `duckmail.pro`，删除未使用实现可缩小外部主机、配置和凭据处理范围。
-- **边界影响**：provider 抽象仍保留；工厂、优先级选择和 `POST /api/accounts` 的 provider 请求字段被删除。
-- **迁移影响**：当前阶段没有已发布的 provider 设置或数据库迁移；旧客户端需改为无请求体创建流程。
-- **测试影响**：使用 mock HTTP 覆盖 DuckMail 注册、轮询、过滤、删除、畸形响应和超时，不自动执行真实删号。
-- **回滚考虑**：回滚必须成套恢复 provider 实现、工厂、类型、API/前端契约、文档和测试，避免部分兼容状态。
+- **原因**：Temp-Mail 没有在本产品中使用受信任的公开接口，因此邮箱地址和邮件只能从现场页面读取；
+  单 provider 策略继续缩小允许主机和页面契约范围。
+- **边界影响**：`browser/temp_mail.py` 独占页面选择器、HTTPS 主机校验和独立上下文；provider 只负责邮箱
+  会话匹配、GitHub 发件域复核、验证码解析、超时和释放。`POST /api/accounts` 仍不接受 provider 字段。
+- **迁移影响**：数据库结构不变；历史账号的 `email_provider` 来源值保留，新流程写入 `temp_mail`。
+- **测试影响**：fake browser 和 provider 边界覆盖邮箱读取、收件箱刷新、邮件打开、主机拒绝、发件人过滤、
+  验证码提取、超时和关闭，不访问真实 Temp-Mail 或 GitHub。
+- **回滚考虑**：回滚必须成套恢复邮箱浏览器适配器、provider、类型、服务构造、文档和测试，避免部分兼容状态。
 
 ### 17.5 未完成账号、安全截图与导入恢复决策
 

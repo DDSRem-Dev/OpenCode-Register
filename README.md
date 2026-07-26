@@ -1,13 +1,13 @@
 # OpenCode 注册机
 
-个人学习场景下的 OpenCode 多账号管理工具。自动化注册流程中的重复步骤，支付和验证码全部人工完成。
+个人学习场景下的 OpenCode 多账号管理工具。自动化注册流程中的重复步骤，支付和安全验证由用户完成。
 
 > 仅用于个人批量管理已授权的 OpenCode 账号，不用于绕过付费或批量滥用。
 
 ## 功能
 
-- DuckMail 临时邮箱自动创建（当前唯一支持 `duckmail.pro`）
-- GitHub 自动注册（验证码与风控人工介入）
+- Temp-Mail 浏览器临时邮箱（当前唯一支持 `https://temp-mail.org/en/`）
+- GitHub 自动注册（邮件验证码自动读取，CAPTCHA 与风控人工介入）
 - 显式启用的已遮罩人工介入截图（默认关闭、有限留存）
 - OpenCode 登录与支付页自动跳转
 - API Key 自动读取与本地加密存储
@@ -53,7 +53,7 @@
 | 能力 | 内容 |
 |------|------|
 | 桌面运行时 | Tauri 壳、Python 本地服务与前后端通信 |
-| 注册流程 | DuckMail provider、GitHub 注册与人工介入面板 |
+| 注册流程 | Temp-Mail 浏览器 provider、GitHub 注册与人工介入面板 |
 | OpenCode 接入 | OpenCode 登录、支付跳转与 API Key 读取 |
 | 本地存储 | SQLite 加密与号池配置写入（auth.json / opencode.json / oh-my-openagent.json） |
 | 账号管理 | 账号列表、导出与导入 |
@@ -110,7 +110,7 @@ npm run dev
 
 沙盒模式会把 SQLite、`auth.json`、`opencode.json` 和 `oh-my-openagent.json` 全部写入
 `.opencode-register-sandbox/`，并在界面显示“沙盒测试模式”。该模式只隔离本地文件，不会模拟
-GitHub、DuckMail、OpenCode 或支付页面；这些仍然是真实外部服务。
+GitHub、Temp-Mail、OpenCode 或支付页面；这些仍然是真实外部服务。
 Tauri 启动器会在切换 Python 工作目录前将相对沙盒路径按项目根目录转换为绝对路径，避免误建到
 `backend/.opencode-register-sandbox/`。
 
@@ -173,7 +173,7 @@ OpenCode 配置；需要完整隔离时必须使用 `OPENCODE_REGISTER_SANDBOX_D
 ## 免责声明
 
 - 支付环节仅自动跳转页面，需用户手动完成支付。
-- 所有验证码与风控验证均由人工介入，不做自动化绕过。
+- GitHub 邮件验证码由 Temp-Mail 浏览器读取；CAPTCHA、手机号、设备验证和未知风控均由人工介入。
 - GitHub 删除只在用户重新输入完整用户名后自动提交；验证码、二次验证和未知安全挑战仍由用户处理。
 - 请遵守 GitHub、OpenCode 及相关服务商的服务条款。
 - 本项目仅用于个人学习场景，开发者需对使用方式负责。
