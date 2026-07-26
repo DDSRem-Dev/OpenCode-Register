@@ -1,0 +1,32 @@
+{
+  "name": "opencode-register",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:backend": "uv run --project backend python scripts/build_backend.py",
+    "package": "npm run build:backend && tauri build",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.4",
+    "jsdom": "^29.1.1",
+    "typescript": "~5.7.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

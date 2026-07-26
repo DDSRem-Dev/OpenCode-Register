@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 门禁顺序固定为 docs/rules/12-collaboration-and-release.md §12.7。
+  python:
+    name: Python format, lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install backend dependencies
+        run: uv sync --project backend --group dev --locked
+      - name: Ruff lint
+        run: uv run --project backend ruff check backend
+      - name: Ruff format check
+        run: uv run --project backend ruff format backend --check
+      - name: Ruff lint build scripts
+        run: uv run --project backend ruff check --config backend/pyproject.toml scripts
+      - name: Mypy
+        run: uv run --project backend mypy backend
+      - name: Mypy build scripts
+        run: uv run --project backend mypy --config-file backend/pyproject.toml scripts
+      - name: Pytest
+        run: uv run --project backend pytest
+
+  frontend:
+    name: Frontend tests and production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Vitest
+        run: npm test
+      - name: Production build
+        run: npm run build
+
+  rust:
+    name: Rust format, check, Clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Linux Tauri dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # externalBin 在 tauri.conf.json 中声明，缺少 sidecar 时 tauri-build 在编译期即失败。
+      # 复用构建脚本而不是手写路径，避免文件名规则出现第二个来源。
+      - name: Provide sidecar placeholder
+        run: |
+          uv sync --project backend --group dev --locked
+          uv run --project backend python scripts/build_backend.py --placeholder
+      - name: rustfmt
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+      - name: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  smoke:
+    name: Cross-process smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install backend dependencies
+        run: uv sync --project backend --group dev --locked
+      # 沙盒目录保证冒烟不触碰 runner 上的任何真实 OpenCode 配置。
+      - name: Probe local service health
+        env:
+          OPENCODE_REGISTER_SANDBOX_DIR: ${{ github.workspace }}/.opencode-register-sandbox
+        run: |
+          uv run --project backend python backend/main.py --host 127.0.0.1 --port 17891 &
+          backend_pid=$!
+          trap 'kill "${backend_pid}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            if curl --fail --silent --show-error http://127.0.0.1:17891/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "local service did not become healthy" >&2
+          exit 1
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: npm audit
+        run: npm audit --audit-level=high

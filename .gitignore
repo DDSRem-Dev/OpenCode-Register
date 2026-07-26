@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.vite/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.uv-cache/
+.opencode-register-sandbox/
+*.py[cod]
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+build/
+.DS_Store
