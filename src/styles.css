@@ -238,6 +238,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .settings-pending > div span { color: #777f85; font-size: 9px; }
 .settings-pending > div strong { display: block; margin-top: 3px; font-size: 15px; }
 .settings-pending .primary-button { min-width: 152px; }
+.settings-repair { min-height: 70px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #dfe2e4; }
+.settings-repair > div { min-width: 0; }
+.settings-repair strong, .settings-repair span { display: block; }
+.settings-repair strong { font-size: 12px; }
+.settings-repair span { margin-top: 4px; color: #777f85; font-size: 10px; line-height: 1.4; }
+.settings-repair .secondary-button { min-width: 112px; }
 
 @media (max-width: 860px) {
   .desktop-shell { grid-template-columns: 190px minmax(0, 1fr); }
@@ -302,6 +308,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   .dialog-backdrop { padding: 14px; }
   .settings-pending { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-pending .primary-button { grid-column: 1 / -1; width: 100%; }
+  .settings-repair { align-items: stretch; flex-direction: column; }
+  .settings-repair .secondary-button { width: 100%; }
   .cleanup-dialog { max-height: calc(100vh - 28px); padding: 17px; }
   .cleanup-progress .primary-button, .cleanup-confirm .danger-button { width: 100%; }
 }

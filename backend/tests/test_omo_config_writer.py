@@ -82,6 +82,12 @@ def test_omo_appends_new_account_to_each_agent_chain_end(tmp_path: Path) -> None
                     "fallback_models": [],
                 },
             },
+            "categories": {
+                "quick": {
+                    "model": "opencode-go2/glm-5.2",
+                    "fallback_models": ["opencode-go/kimi-k2.7-code"],
+                }
+            },
             "unrelated": {"preserve": True},
         },
     )
@@ -96,6 +102,10 @@ def test_omo_appends_new_account_to_each_agent_chain_end(tmp_path: Path) -> None
         "opencode-go3/kimi-k2.7-code",
     ]
     assert document["agents"]["plan"]["fallback_models"] == ["opencode-go3/glm-5.2"]
+    assert document["categories"]["quick"]["fallback_models"] == [
+        "opencode-go/kimi-k2.7-code",
+        "opencode-go3/glm-5.2",
+    ]
     assert document["model_fallback"] is True
     assert document["runtime_fallback"] == {
         "enabled": True,
@@ -308,7 +318,7 @@ def test_omo_model_sync_removes_stale_fallback_but_preserves_order(tmp_path: Pat
         "other/fallback",
         "opencode-go2/kimi-k2.7-code",
     ]
-    assert result.updated_agents == ["build"]
+    assert result.updated_agents == ["agents.build"]
 
 
 def test_omo_model_sync_rejects_removed_primary_model(tmp_path: Path) -> None:
@@ -324,3 +334,91 @@ def test_omo_model_sync_rejects_removed_primary_model(tmp_path: Path) -> None:
         OmoConfigWriter(paths).sync_official_models(official_models())
 
     assert read_omo(paths.omo_path) == original
+
+
+def test_omo_repair_reconciles_agents_and_categories_with_configured_providers(tmp_path: Path) -> None:
+    """
+    验证一键修复补齐遗漏并移除重复、下线和不存在账号的 fallback
+    """
+
+    paths = create_paths(tmp_path)
+    write_omo(
+        paths.omo_path,
+        {
+            "agents": {
+                "build": {
+                    "model": "opencode-go2/kimi-k2.7-code",
+                    "fallback_models": [
+                        "opencode-go/kimi-k2.7-code",
+                        "opencode-go/kimi-k2.7-code",
+                        "opencode-go4/kimi-k2.7-code",
+                    ],
+                }
+            },
+            "categories": {
+                "quick": {
+                    "model": "opencode-go2/glm-5.2",
+                    "fallback_models": ["opencode-go/removed-model", "other/model"],
+                }
+            },
+            "custom": True,
+        },
+    )
+
+    result = OmoConfigWriter(paths).repair_account_fallbacks(
+        ["opencode-go", "opencode-go2", "opencode-go3"],
+        official_models(),
+    )
+
+    document = read_omo(paths.omo_path)
+    assert isinstance(document, dict)
+    assert document["agents"]["build"]["fallback_models"] == [
+        "opencode-go/kimi-k2.7-code",
+        "opencode-go3/kimi-k2.7-code",
+    ]
+    assert document["categories"]["quick"]["fallback_models"] == [
+        "other/model",
+        "opencode-go/glm-5.2",
+        "opencode-go3/glm-5.2",
+    ]
+    assert document["custom"] is True
+    assert result.updated_targets == ["agents.build", "categories.quick"]
+    assert result.added_fallback_count == 3
+    assert result.removed_fallback_count == 3
+    assert result.backup_path is not None
+
+
+def test_omo_repair_is_idempotent(tmp_path: Path) -> None:
+    """
+    验证完整配置重复修复不会创建备份
+    """
+
+    paths = create_paths(tmp_path)
+    write_omo(
+        paths.omo_path,
+        {
+            "agents": {
+                "build": {
+                    "model": "opencode-go2/kimi-k2.7-code",
+                    "fallback_models": [
+                        "opencode-go/kimi-k2.7-code",
+                        "opencode-go3/kimi-k2.7-code",
+                    ],
+                }
+            },
+            "model_fallback": True,
+            "runtime_fallback": {
+                "enabled": True,
+                "max_fallback_attempts": 3,
+                "retry_on_errors": [429, 500, 502, 503, 504],
+            },
+        },
+    )
+
+    result = OmoConfigWriter(paths).repair_account_fallbacks(
+        ["opencode-go", "opencode-go2", "opencode-go3"],
+        official_models(),
+    )
+
+    assert result.updated_targets == []
+    assert result.backup_path is None

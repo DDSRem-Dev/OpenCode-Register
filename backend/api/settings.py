@@ -4,6 +4,9 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.errors import ApiError, ErrorResponse
+from config.errors import ConfigFileError, ModelCatalogError
+from config.models import OmoRepairResult
+from config.pool_service import OpenCodePoolConfigService
 from engine.completion import AccountCompletionError, AccountCompletionService
 from storage.models import AutomaticConfigurationSettings
 from storage.service import AccountVaultService, InvalidConfigurationSettingsError
@@ -32,15 +35,27 @@ class AutomaticConfigurationResponse(BaseModel):
     applied_count: int = Field(default=0, ge=0, description="本次完成配置应用的账号数量")
 
 
+class ConfigurationRepairResponse(BaseModel):
+    """
+    本地配置一键修复响应
+    """
+
+    updated_target_count: int = Field(..., ge=0, description="本次修复的 agent 与 category 数量")
+    added_fallback_count: int = Field(..., ge=0, description="本次补齐的 fallback 数量")
+    removed_fallback_count: int = Field(..., ge=0, description="本次移除的无效 fallback 数量")
+
+
 def create_settings_router(
     vault_service: AccountVaultService,
     completion_service: AccountCompletionService,
+    pool_service: OpenCodePoolConfigService,
 ) -> APIRouter:
     """
     创建自动配置设置与应用路由
 
     :param vault_service (AccountVaultService): 本地账号库服务
     :param completion_service (AccountCompletionService): 账号配置协调服务
+    :param pool_service (OpenCodePoolConfigService): OpenCode 与 OMO 配置协调服务
 
     :return APIRouter: 配置完成的设置路由
     """
@@ -108,6 +123,31 @@ def create_settings_router(
         except AccountCompletionError as error:
             raise ApiError(409, "account_configuration_apply_failed", str(error)) from error
         return await _settings_response(vault_service, applied_count)
+
+    @router.post(
+        "/settings/repair",
+        response_model=ConfigurationRepairResponse,
+        responses={409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+        tags=["settings"],
+    )
+    async def repair_configuration() -> ConfigurationRepairResponse:
+        """
+        根据实际 OpenCode provider 一键修复 OMO fallback 配置
+
+        :return ConfigurationRepairResponse: 配置修复统计
+        """
+
+        try:
+            result: OmoRepairResult = await pool_service.repair_configuration()
+        except ModelCatalogError as error:
+            raise ApiError(503, "model_catalog_unavailable", str(error)) from error
+        except ConfigFileError as error:
+            raise ApiError(409, "configuration_repair_failed", str(error)) from error
+        return ConfigurationRepairResponse(
+            updated_target_count=len(result.updated_targets),
+            added_fallback_count=result.added_fallback_count,
+            removed_fallback_count=result.removed_fallback_count,
+        )
 
     return router
 

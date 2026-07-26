@@ -205,7 +205,21 @@ class OmoModelSyncResult(BaseModel):
 
     target_path: Path = Field(..., description="已检查或更新的 OMO 配置路径")
     backup_path: Optional[Path] = Field(default=None, description="本次清理创建的备份路径")
-    updated_agents: List[str] = Field(..., description="已清理 fallback 的 agent 名称")
+    updated_agents: List[str] = Field(..., description="已清理 fallback 的 agent 或 category 路径")
+
+
+class OmoRepairResult(BaseModel):
+    """
+    OMO fallback 配置修复结果
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_path: Path = Field(..., description="已检查或修复的 OMO 配置路径")
+    backup_path: Optional[Path] = Field(default=None, description="本次修复创建的备份路径")
+    updated_targets: List[str] = Field(..., description="本次修复的 agent 或 category 路径")
+    added_fallback_count: int = Field(..., ge=0, description="本次补齐的 fallback 数量")
+    removed_fallback_count: int = Field(..., ge=0, description="本次移除的无效 fallback 数量")
 
 
 class PoolModelSyncResult(BaseModel):

@@ -5,6 +5,7 @@ import { Settings } from "./Settings";
 const serviceMocks = vi.hoisted(() => ({
   applyAutomaticConfiguration: vi.fn(),
   fetchAutomaticConfiguration: vi.fn(),
+  repairConfiguration: vi.fn(),
   updateAutomaticConfiguration: vi.fn(),
 }));
 
@@ -66,5 +67,25 @@ describe("Settings", () => {
     render(<Settings isBackendConnected isVaultUnlocked={false} onConfigurationApplied={vi.fn()} />);
 
     expect(await screen.findByRole("button", { name: "解锁后应用" })).toBeDisabled();
+  });
+
+  it("repairs existing configuration independently of pending accounts", async () => {
+    const onConfigurationApplied = vi.fn();
+    serviceMocks.fetchAutomaticConfiguration.mockResolvedValue({
+      ...configuration,
+      opencodePendingCount: 0,
+      omoPendingCount: 0,
+    });
+    serviceMocks.repairConfiguration.mockResolvedValue({
+      updatedTargetCount: 3,
+      addedFallbackCount: 3,
+      removedFallbackCount: 1,
+    });
+    render(<Settings isBackendConnected isVaultUnlocked={false} onConfigurationApplied={onConfigurationApplied} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "一键修复" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("已修复 3 项配置，补齐 3 条、移除 1 条 fallback");
+    expect(onConfigurationApplied).toHaveBeenCalledOnce();
   });
 });

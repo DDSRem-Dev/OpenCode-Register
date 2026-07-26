@@ -10,6 +10,7 @@ import {
   markAccountExhausted,
   refreshAccountQuota,
   refreshAllQuotas,
+  repairConfiguration,
   resumeFlow,
   startAccountCleanup,
   startAccountFlow,
@@ -201,12 +202,21 @@ describe("fetchHealth", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ ...settingsPayload, opencode_pending_count: 0, omo_pending_count: 0, applied_count: 2 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ updated_target_count: 4, added_fallback_count: 4, removed_fallback_count: 1 }),
       });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(fetchAutomaticConfiguration()).resolves.toMatchObject({ opencodePendingCount: 2 });
     await expect(updateAutomaticConfiguration(true, true)).resolves.toMatchObject({ autoConfigureOmo: true });
     await expect(applyAutomaticConfiguration()).resolves.toMatchObject({ appliedCount: 2 });
+    await expect(repairConfiguration()).resolves.toEqual({
+      updatedTargetCount: 4,
+      addedFallbackCount: 4,
+      removedFallbackCount: 1,
+    });
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://127.0.0.1:17891/api/settings",

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CircleAlert, RefreshCw, Settings2 } from "lucide-react";
+import { CircleAlert, RefreshCw, Settings2, Wrench } from "lucide-react";
 import {
   applyAutomaticConfiguration,
   fetchAutomaticConfiguration,
+  repairConfiguration,
   updateAutomaticConfiguration,
   type AutomaticConfiguration,
 } from "../services/api";
@@ -24,7 +25,7 @@ const SUCCESS_MESSAGE_DURATION_MS = 4000;
 
 export function Settings({ isBackendConnected, isVaultUnlocked, onConfigurationApplied }: SettingsProps) {
   const [state, setState] = useState<SettingsState>({ status: "loading" });
-  const [operation, setOperation] = useState<"save" | "apply" | null>(null);
+  const [operation, setOperation] = useState<"save" | "apply" | "repair" | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const requestRef = useRef<AbortController | null>(null);
 
@@ -105,6 +106,30 @@ export function Settings({ isBackendConnected, isVaultUnlocked, onConfigurationA
     }
   };
 
+  const handleRepair = async () => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setOperation("repair");
+    setFeedback(null);
+    try {
+      const result = await repairConfiguration(controller.signal);
+      if (controller.signal.aborted) return;
+      const repairSummary = result.updatedTargetCount === 0
+        ? "配置已完整，无需修改"
+        : `已修复 ${result.updatedTargetCount} 项配置，补齐 ${result.addedFallbackCount} 条、移除 ${result.removedFallbackCount} 条 fallback`;
+      setFeedback({ status: "success", text: repairSummary });
+      onConfigurationApplied();
+    } catch (reason) {
+      if (!controller.signal.aborted) setFeedback({ status: "error", text: errorMessage(reason, "无法修复本地配置") });
+    } finally {
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setOperation(null);
+      }
+    }
+  };
+
   const configuration = state.status === "ready" ? state.configuration : null;
   const pendingCount = configuration
     ? Math.max(configuration.opencodePendingCount, configuration.omoPendingCount)
@@ -176,6 +201,21 @@ export function Settings({ isBackendConnected, isVaultUnlocked, onConfigurationA
             >
               <RefreshCw size={16} className={operation === "apply" ? "spin" : ""} />
               {isVaultUnlocked ? "应用到现有账号" : "解锁后应用"}
+            </button>
+          </div>
+          <div className="settings-repair">
+            <div>
+              <strong>配置完整性</strong>
+              <span>校正账号 provider 在 agents 与 categories 中的 fallback</span>
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleRepair()}
+              disabled={operation !== null}
+            >
+              <Wrench size={16} className={operation === "repair" ? "spin" : ""} />
+              一键修复
             </button>
           </div>
         </div>

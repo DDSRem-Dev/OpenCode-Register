@@ -6,6 +6,7 @@ import type {
   AccountSummary,
   AutomaticConfiguration,
   BackendProcessStatus,
+  ConfigurationRepairResult,
   ErrorResponse,
   FlowEvent,
   FlowSession,
@@ -106,6 +107,10 @@ export async function updateAutomaticConfiguration(
 
 export async function applyAutomaticConfiguration(signal?: AbortSignal): Promise<AutomaticConfiguration> {
   return parseAutomaticConfiguration(await requestJson("/api/settings/apply", { method: "POST", signal }));
+}
+
+export async function repairConfiguration(signal?: AbortSignal): Promise<ConfigurationRepairResult> {
+  return parseConfigurationRepairResult(await requestJson("/api/settings/repair", { method: "POST", signal }));
 }
 
 export async function copyAccountApiKey(accountId: string, signal?: AbortSignal): Promise<void> {
@@ -363,6 +368,22 @@ function parseAutomaticConfiguration(payload: unknown): AutomaticConfiguration {
     opencodePendingCount: payload.opencode_pending_count,
     omoPendingCount: payload.omo_pending_count,
     appliedCount: payload.applied_count,
+  };
+}
+
+function parseConfigurationRepairResult(payload: unknown): ConfigurationRepairResult {
+  if (
+    !isRecord(payload)
+    || !isNonNegativeInteger(payload.updated_target_count)
+    || !isNonNegativeInteger(payload.added_fallback_count)
+    || !isNonNegativeInteger(payload.removed_fallback_count)
+  ) {
+    throw new Error("本地服务返回了无效配置修复结果");
+  }
+  return {
+    updatedTargetCount: payload.updated_target_count,
+    addedFallbackCount: payload.added_fallback_count,
+    removedFallbackCount: payload.removed_fallback_count,
   };
 }
 

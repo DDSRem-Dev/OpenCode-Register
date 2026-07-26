@@ -146,7 +146,7 @@ def create_app(
     app.include_router(create_accounts_router(vault_service), prefix="/api")
     app.include_router(create_account_transfer_router(vault_service, completion_service.import_bundle), prefix="/api")
     app.include_router(create_quota_router(quota_service), prefix="/api")
-    app.include_router(create_settings_router(vault_service, completion_service), prefix="/api")
+    app.include_router(create_settings_router(vault_service, completion_service, pool_service), prefix="/api")
     app.include_router(create_cleanup_router(cleanup_service), prefix="/api")
     app.include_router(create_websocket_router(service), prefix="/ws")
     return app

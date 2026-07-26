@@ -49,6 +49,12 @@ export type AutomaticConfiguration = {
   appliedCount: number;
 };
 
+export type ConfigurationRepairResult = {
+  updatedTargetCount: number;
+  addedFallbackCount: number;
+  removedFallbackCount: number;
+};
+
 export type QuotaRefreshStatus = "updated" | "exhausted" | "invalid" | "unavailable";
 
 export type QuotaRefreshResult = {

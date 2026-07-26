@@ -9,6 +9,7 @@ from config.errors import ConfigFileError
 from config.model_catalog import OpenCodeGoModelClient
 from config.models import (
     ConfigWriteResult,
+    OmoRepairResult,
     OpenCodeModel,
     PoolAccountRemovalResult,
     PoolConfigWriteResult,
@@ -129,6 +130,17 @@ class OpenCodePoolConfigService:
 
         models: List[OpenCodeModel] = await self._model_client.fetch_models()
         return await asyncio.to_thread(self._omo_writer.append_account_fallback, provider_name, models)
+
+    async def repair_configuration(self) -> OmoRepairResult:
+        """
+        根据实际 OpenCode provider 修复 OMO fallback 配置
+
+        :return OmoRepairResult: OMO 配置修复结果
+        """
+
+        models = await self._model_client.fetch_models()
+        provider_names = await asyncio.to_thread(self._opencode_writer.configured_provider_names)
+        return await asyncio.to_thread(self._omo_writer.repair_account_fallbacks, provider_names, models)
 
     async def remove_account(
         self,

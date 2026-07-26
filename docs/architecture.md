@@ -428,6 +428,7 @@ GitHub 注册完成但尚未取得 OpenCode API Key 的账号独立存放，避�
 | GET | `/api/settings` | 读取自动配置开关与待应用数量 |
 | PUT | `/api/settings` | 更新自动配置开关 |
 | POST | `/api/settings/apply` | 按当前开关为已有账号补写配置 |
+| POST | `/api/settings/repair` | 按实际 OpenCode provider 修复 OMO fallback 配置 |
 | POST | `/api/export` | 导出加密账号包 |
 | POST | `/api/import` | 导入加密账号包 |
 
@@ -591,9 +592,10 @@ OMO 通过 `model_fallback` + `runtime_fallback` 实现多账号自动切换。�
 }
 ```
 
-工具新建账号后，把它加入每个 agent 的 `fallback_models` 链末尾，保留用户现有优先级。每个 agent
-优先沿用其现有 OpenCode Go model ID；没有现有 Go 模型时使用 `kimi-k2.7-code`。如果该默认模型已从
-官方目录下线，配置写入必须停止并要求更新架构默认值，不得静默选择其他模型。
+工具新建账号后，把它加入 `agents` 与 `categories` 中每个配置项的 `fallback_models` 链末尾，保留用户
+现有优先级。每个配置项优先沿用其现有 OpenCode Go model ID；没有现有 Go 模型时使用
+`kimi-k2.7-code`。如果该默认模型已从官方目录下线，配置写入必须停止并要求更新架构默认值，不得静默
+选择其他模型。
 
 `oh-my-openagent.json` 不存在时，工具按上例创建最小 `build` agent，以首账号
 `opencode-go/kimi-k2.7-code` 为主模型并追加当前二级账号。文件已经存在但 `agents` 显式为空时停止写入，
@@ -613,6 +615,9 @@ OMO 通过 `model_fallback` + `runtime_fallback` 实现多账号自动切换。�
 - 两项默认开启，只影响之后新增或导入的账号；关闭不会删除已经写入的配置。
 - 未自动写入的账号仍保存完整凭据与预分配 provider，账号列表显示对应待应用状态。
 - 「应用到现有账号」只处理待应用账号；预分配 provider 与文件现状不一致时停止并回滚本次全部写入。
+- 「一键修复」以 `auth.json` 与 `opencode.json` 中实际存在的 OpenCode Go provider 为可信来源，补齐
+  `agents` 与 `categories` 遗漏的 fallback，移除重复、已下线模型和不存在账号的受管引用。其他 provider、
+  有效 fallback 顺序及自定义字段保持不变；主模型错误或来源文件无效时停止并报告冲突。
 - 清理账号时只修改该账号实际写入过的配置，禁止因为删除未配置账号而创建新配置文件。
 
 ## 12. 额度检测
@@ -825,7 +830,7 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
   单一来源的模型会暂时排除，交集为空时失败关闭，不猜测显示名或 SDK。
 - 二级账号新增前获取并合并两个目录，在同一次 `opencode.json` 原子写入中同步现有二级 provider。
 - 二级账号序号由配置写入器按现有最大序号加一自动分配，不依赖调用方传入编号。
-- 新账号追加到每个 OMO agent 的 `fallback_models` 链末尾，不重排或覆盖已有 fallback。
+- 新账号追加到每个 OMO agent 与 category 的 `fallback_models` 链末尾，不重排或覆盖已有有效 fallback。
 - OMO 更新失败时回滚同次 `opencode.json` 变更，避免形成只有 provider、没有 fallback 的部分状态。
 
 **变更原因**：原设计同时描述了内置模型列表、复制已有模型和链首/链末两种 fallback 顺序，无法形成
@@ -834,19 +839,21 @@ Tauri 把 sidecar 放到应用包中与主可执行文件同级的位置（macOS
 
 **边界影响**：`config/` 的模型目录适配器固定访问 OpenCode Go 与 Models.dev 两个预期 HTTPS 主机，
 响应在边界转换为类型化模型，配置写入器仍只接收已验证模型，不接受运行时任意 URL 或 SDK 名称。
+一键修复只读取三个固定配置目标，响应仅返回修复计数，不返回配置路径、provider 内容或凭据。
 
 **迁移影响**：现有 `opencode-go2` 及后续 provider 在下一次新增账号或显式刷新时同步官方模型 ID；
 仍可用模型的自定义名称和非传输扩展元数据保留，模型级 `provider` 按结构化目录纠正，已从官网移除的
 模型及其 fallback 引用删除。其余 OMO fallback 顺序不变，仅在末尾追加；已下线的 agent 主模型需要
-用户明确选择替代项。
+用户明确选择替代项。已有安装无需数据迁移，可从设置页执行一次一键修复补齐历史遗漏的 category 引用。
 
 **测试影响**：自动测试使用 fake HTTP 覆盖双源合并、发布时差、空交集、未知 SDK、重复、畸形和上游失败响应，
-并使用临时目录覆盖 provider override 校正、自动编号、链末追加、幂等、备份、跨文件回滚和未知默认
-模型，不访问开发者真实 OpenCode 配置。
+并使用临时目录覆盖 provider override 校正、自动编号、agent/category 链末追加、一键修复、幂等、备份、
+跨文件回滚和未知默认模型，不访问开发者真实 OpenCode 配置。
 
 **回滚考虑**：若任一目录删除或改变契约，停止模型同步并保留现有配置；只有核实新的官方契约后才能
 成套更新客户端模型、配置同步逻辑、架构文档和测试，不回退到抓取文档页面、按名称猜测或静默使用
-硬编码旧列表。
+硬编码旧列表。若 OMO 后续移除 category fallback 契约，应停用修复入口后按备份恢复，不保留仅写 agent
+的隐式兼容分支。
 
 ### 17.3 额度与账号清理契约
 

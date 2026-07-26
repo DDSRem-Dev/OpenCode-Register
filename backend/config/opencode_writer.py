@@ -201,6 +201,28 @@ class OpenCodeConfigWriter:
             updated_providers=updated_providers,
         )
 
+    def configured_provider_names(self) -> List[str]:
+        """
+        返回三个配置文件中实际存在的 OpenCode Go 账号 provider
+
+        :return List: 按账号编号排列的 provider 名称
+
+        :raises ConfigFileError: auth.json 或 opencode.json 结构无效
+        """
+
+        provider_names: List[str] = []
+        auth_document = load_document(self._paths.auth_path)
+        primary_provider = auth_document.get("opencode-go")
+        if primary_provider is not None:
+            _validate_primary_provider(primary_provider)
+            provider_names.append("opencode-go")
+        document = load_document(self._paths.opencode_path)
+        providers = owned_object(document, "provider", "provider 配置")
+        secondary_names = [name for name in providers if _PROVIDER_PATTERN.fullmatch(name) is not None]
+        secondary_names.sort(key=lambda name: int(name.removeprefix("opencode-go")))
+        provider_names.extend(secondary_names)
+        return provider_names
+
     def remove_secondary_account(self, provider_name: str) -> ConfigWriteResult:
         """
         从 opencode.json 移除指定二级账号 provider
