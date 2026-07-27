@@ -79,7 +79,7 @@ describe("fetchHealth", () => {
       json: async () => ({
         status: "ok",
         service: "opencode-register-backend",
-        version: "0.0.7",
+        version: "0.0.8",
         storage_mode: "sandbox",
         browser_status: "ready",
       }),
@@ -87,7 +87,7 @@ describe("fetchHealth", () => {
 
     await expect(fetchHealth()).resolves.toMatchObject({
       status: "ok",
-      version: "0.0.7",
+      version: "0.0.8",
       storage_mode: "sandbox",
       browser_status: "ready",
     });
@@ -99,7 +99,7 @@ describe("fetchHealth", () => {
       json: async () => ({
         status: "ok",
         service: "opencode-register-backend",
-        version: "0.0.7",
+        version: "0.0.8",
         storage_mode: "system",
         browser_status: "initializing",
       }),
