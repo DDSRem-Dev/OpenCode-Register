@@ -4,6 +4,8 @@ from typing import List, Optional, Tuple
 from cloakbrowser import launch_async  # type: ignore[import-untyped]
 from playwright.async_api import Browser, BrowserContext, Page
 
+from .initializer import BrowserInitializer
+
 OPENCODE_ORIGIN = "https://opencode.ai"
 OPENCODE_CLIPBOARD_PERMISSIONS = ["clipboard-read", "clipboard-write"]
 
@@ -78,16 +80,18 @@ class CloakBrowserClient:
     CloakBrowser 浏览器生命周期管理器
     """
 
-    def __init__(self, headless: bool = False) -> None:
+    def __init__(self, headless: bool = False, initializer: Optional[BrowserInitializer] = None) -> None:
         """
         初始化尚未启动的浏览器管理器
 
         :param headless (bool): 是否在后台无窗口运行浏览器
+        :param initializer (BrowserInitializer): 可选的共享浏览器初始化管理器
         """
 
         self._browser: Optional[Browser] = None
         self._start_lock = asyncio.Lock()
         self._headless = headless
+        self._initializer = initializer
 
     def create_session(self) -> CloakBrowserSession:
         """
@@ -130,5 +134,7 @@ class CloakBrowserClient:
     async def _ensure_browser(self) -> Browser:
         async with self._start_lock:
             if self._browser is None:
+                if self._initializer is not None:
+                    await self._initializer.wait_until_ready()
                 self._browser = await launch_async(headless=self._headless)
             return self._browser

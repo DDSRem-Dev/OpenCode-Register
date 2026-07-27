@@ -5,6 +5,7 @@ import pytest
 
 import engine.service as service_module
 from browser.base import GitHubRegistrationClient, OpenCodeAutomationClient
+from browser.initializer import BrowserInitializer
 from browser.models import GitHubPageResult, GitHubPageStatus, OpenCodePageResult, OpenCodePageStatus
 from engine.events import FlowEvent
 from engine.models import AccountCompletionData, FlowStatus, ManualInterventionReason
@@ -22,7 +23,8 @@ async def test_default_service_runs_email_browser_in_background(monkeypatch: pyt
     closed_modes: list[bool] = []
 
     class _RecordingBrowserClient:
-        def __init__(self, headless: bool = False) -> None:
+        def __init__(self, headless: bool = False, initializer: Optional[BrowserInitializer] = None) -> None:
+            del initializer
             self._headless = headless
             launch_modes.append(headless)
 

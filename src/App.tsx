@@ -3,6 +3,7 @@ import {
   ArchiveRestore,
   CircleAlert,
   FlaskConical,
+  LoaderCircle,
   Settings as SettingsIcon,
   LayoutList,
   Plus,
@@ -10,6 +11,7 @@ import {
 import {
   configureBackendPort,
   fetchHealth,
+  initializeBrowser,
   isTauriRuntime,
   startBackend,
   type HealthResponse,
@@ -18,7 +20,7 @@ import { CreateFlow } from "./pages/CreateFlow";
 import { Dashboard } from "./pages/Dashboard";
 import { Settings } from "./pages/Settings";
 
-type ConnectionState = "connecting" | "connected" | "offline";
+type ConnectionState = "connecting" | "initializing" | "connected" | "offline";
 type WorkspaceView = "accounts" | "create" | "transfer" | "settings";
 
 const BACKEND_START_RETRY_COUNT = 3;
@@ -77,6 +79,19 @@ export default function App() {
       if (!response) throw new Error("无法连接本地服务");
       if (connectionAttemptRef.current !== connectionAttempt) return;
 
+      if (response.browser_status === "error") response = await initializeBrowser();
+      while (response.browser_status === "initializing") {
+        setHealth(response);
+        setConnection("initializing");
+        await new Promise((resolve) => window.setTimeout(resolve, HEALTH_PROBE_INTERVAL_MS));
+        if (connectionAttemptRef.current !== connectionAttempt) return;
+        response = await fetchHealth();
+      }
+      if (response.browser_status === "error") {
+        throw new Error("浏览器初始化失败，请检查网络连接后重试");
+      }
+      if (connectionAttemptRef.current !== connectionAttempt) return;
+
       setHealth(response);
       setConnection("connected");
     } catch (reason) {
@@ -96,6 +111,7 @@ export default function App() {
 
   const statusLabel = {
     connecting: "正在连接",
+    initializing: "正在初始化浏览器",
     connected: "服务正常",
     offline: "服务离线",
   }[connection];
@@ -149,6 +165,12 @@ export default function App() {
             <div className="error-banner global-banner" role="alert">
               <CircleAlert size={18} />
               <div><strong>本地服务连接失败</strong><span>{error}</span></div>
+            </div>
+          )}
+          {connection === "initializing" && (
+            <div className="initialization-banner global-banner" role="status">
+              <LoaderCircle className="status-spinner" size={18} />
+              <div><strong>正在初始化浏览器</strong><span>首次运行需要下载浏览器组件，完成后应用会自动就绪。</span></div>
             </div>
           )}
           {health?.storage_mode === "sandbox" && (

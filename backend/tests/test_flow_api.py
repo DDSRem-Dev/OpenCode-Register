@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from api.routes import create_router
+from browser.initializer import BrowserInitializer
 from engine.service import CreateAccountService
 from main import create_app
 from storage.service import AccountVaultService
@@ -131,6 +132,7 @@ async def test_sanitized_screenshot_response_is_png_and_never_cacheable(tmp_path
             AccountVaultService(tmp_path / "accounts.db"),
             "sandbox",
             app.version,
+            BrowserInitializer(lambda: str(tmp_path / "chrome")),
         ),
         prefix="/api",
     )

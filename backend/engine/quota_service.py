@@ -4,6 +4,7 @@ from typing import Callable, Dict, List, Optional
 
 from browser.base import OpenCodeQuotaBrowserClient
 from browser.cloakbrowser_client import CloakBrowserClient
+from browser.initializer import BrowserInitializer
 from browser.models import OpenCodeQuotaPageStatus
 from browser.opencode_quota import OpenCodeQuotaBrowser
 from scheduler.models import QuotaRefreshResult, QuotaRefreshStatus
@@ -23,19 +24,21 @@ class QuotaCheckService:
         self,
         vault_service: AccountVaultService,
         browser_client_factory: Optional[Callable[[], OpenCodeQuotaBrowserClient]] = None,
+        browser_initializer: Optional[BrowserInitializer] = None,
     ) -> None:
         """
         初始化额度检查服务
 
         :param vault_service (AccountVaultService): 已加密账号库服务
         :param browser_client_factory (Callable): 可选的后台浏览器额度客户端工厂
+        :param browser_initializer (BrowserInitializer): 可选的共享浏览器初始化管理器
         """
 
         self._vault_service = vault_service
         self._account_locks: Dict[str, asyncio.Lock] = {}
         self._cloakbrowser_client: Optional[CloakBrowserClient] = None
         if browser_client_factory is None:
-            self._cloakbrowser_client = CloakBrowserClient(headless=True)
+            self._cloakbrowser_client = CloakBrowserClient(headless=True, initializer=browser_initializer)
             self._browser_client_factory = self._create_browser_client
         else:
             self._browser_client_factory = browser_client_factory

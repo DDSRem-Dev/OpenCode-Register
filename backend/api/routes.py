@@ -5,6 +5,7 @@ from fastapi import APIRouter, Response, status
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from api.errors import ApiError, ErrorResponse
+from browser.initializer import BrowserInitializer
 from engine.flow import FlowTransitionError
 from engine.models import FlowSession
 from engine.service import CreateAccountService, FlowBusyError, FlowNotFoundError
@@ -23,6 +24,7 @@ class HealthResponse(BaseModel):
     service: str = Field(..., description="服务名称")
     version: str = Field(..., description="服务版本")
     storage_mode: Literal["system", "sandbox"] = Field(..., description="本地文件写入模式")
+    browser_status: Literal["initializing", "ready", "error"] = Field(..., description="浏览器初始化状态")
 
 
 class ManualInputRequest(BaseModel):
@@ -63,6 +65,7 @@ def create_router(
     vault_service: AccountVaultService,
     storage_mode: Literal["system", "sandbox"],
     application_version: str,
+    browser_initializer: BrowserInitializer,
 ) -> APIRouter:
     """
     创建绑定账号流程服务的 HTTP 路由
@@ -71,6 +74,7 @@ def create_router(
     :param vault_service (AccountVaultService): 本地加密账号库服务
     :param storage_mode (Literal): 本地文件写入模式
     :param application_version (str): 应用程序版本
+    :param browser_initializer (BrowserInitializer): 浏览器初始化管理器
 
     :return APIRouter: 配置完成的 API 路由
     """
@@ -90,6 +94,24 @@ def create_router(
             service="opencode-register-backend",
             version=application_version,
             storage_mode=storage_mode,
+            browser_status=browser_initializer.status.value,
+        )
+
+    @router.post("/browser/initialize", response_model=HealthResponse, tags=["system"])
+    async def initialize_browser() -> HealthResponse:
+        """
+        启动或重试 CloakBrowser 浏览器初始化
+
+        :return HealthResponse: 启动初始化后的服务状态
+        """
+
+        browser_initializer.start(retry_failed=True)
+        return HealthResponse(
+            status="ok",
+            service="opencode-register-backend",
+            version=application_version,
+            storage_mode=storage_mode,
+            browser_status=browser_initializer.status.value,
         )
 
     @router.post(

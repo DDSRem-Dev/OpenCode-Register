@@ -8,6 +8,7 @@ import {
   fetchFlow,
   fetchHealth,
   importAccounts,
+  initializeBrowser,
   markAccountExhausted,
   refreshAccountQuota,
   refreshAllQuotas,
@@ -78,16 +79,38 @@ describe("fetchHealth", () => {
       json: async () => ({
         status: "ok",
         service: "opencode-register-backend",
-        version: "0.0.6",
+        version: "0.0.7",
         storage_mode: "sandbox",
+        browser_status: "ready",
       }),
     }));
 
     await expect(fetchHealth()).resolves.toMatchObject({
       status: "ok",
-      version: "0.0.6",
+      version: "0.0.7",
       storage_mode: "sandbox",
+      browser_status: "ready",
     });
+  });
+
+  it("starts browser initialization through the backend service", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        service: "opencode-register-backend",
+        version: "0.0.7",
+        storage_mode: "system",
+        browser_status: "initializing",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(initializeBrowser()).resolves.toMatchObject({ browser_status: "initializing" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17891/api/browser/initialize",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("uses the configured sidecar port for HTTP and WebSocket calls", async () => {

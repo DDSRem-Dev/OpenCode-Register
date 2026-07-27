@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from browser.initializer import BrowserInitializationError, BrowserInitializer
 from main import create_app
 
 
@@ -14,7 +15,8 @@ async def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setenv("OPENCODE_REGISTER_SANDBOX_DIR", str(tmp_path))
     application_version = "test-version"
-    application = create_app(application_version=application_version)
+    browser_initializer = BrowserInitializer(lambda: str(tmp_path / "chrome"))
+    application = create_app(application_version=application_version, browser_initializer=browser_initializer)
     async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
         response = await client.get("/api/health")
 
@@ -24,8 +26,51 @@ async def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         "service": "opencode-register-backend",
         "version": application_version,
         "storage_mode": "sandbox",
+        "browser_status": "initializing",
     }
     assert application.version == application_version
+
+
+@pytest.mark.anyio
+async def test_browser_initialization_endpoint_retries_failed_install(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    验证浏览器初始化接口可重试失败的下载任务
+    """
+
+    monkeypatch.setenv("OPENCODE_REGISTER_SANDBOX_DIR", str(tmp_path))
+    attempts = 0
+
+    def install() -> str:
+        """
+        首次失败后返回测试浏览器路径
+
+        :return str: 测试浏览器路径
+
+        :raises RuntimeError: 首次测试安装失败
+        """
+
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("test download failure")
+        return str(tmp_path / "chrome")
+
+    initializer = BrowserInitializer(install)
+    application = create_app(browser_initializer=initializer)
+    with pytest.raises(BrowserInitializationError):
+        await initializer.wait_until_ready()
+
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
+        response = await client.post("/api/browser/initialize")
+        await initializer.wait_until_ready()
+        health_response = await client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["browser_status"] == "initializing"
+    assert health_response.json()["browser_status"] == "ready"
 
 
 @pytest.mark.anyio

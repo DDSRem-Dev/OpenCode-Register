@@ -6,6 +6,7 @@ import type { HealthResponse } from "./services/contracts";
 const serviceMocks = vi.hoisted(() => ({
   configureBackendPort: vi.fn(),
   fetchHealth: vi.fn(),
+  initializeBrowser: vi.fn(),
   isTauriRuntime: vi.fn(() => false),
   startBackend: vi.fn(),
 }));
@@ -30,8 +31,9 @@ vi.mock("./pages/Settings", () => ({
 const health: HealthResponse = {
   status: "ok",
   service: "opencode-register-backend",
-  version: "0.0.6",
+  version: "0.0.7",
   storage_mode: "sandbox",
+  browser_status: "ready",
 };
 
 describe("App", () => {
@@ -51,7 +53,7 @@ describe("App", () => {
     expect(screen.queryByText("本地服务")).not.toBeInTheDocument();
     expect(screen.queryByText("opencode-register-backend")).not.toBeInTheDocument();
     expect(serviceMocks.configureBackendPort).toHaveBeenCalledWith(17891);
-    expect(screen.getByLabelText("软件版本 0.0.6")).toHaveTextContent("v0.0.6");
+    expect(screen.getByLabelText("软件版本 0.0.7")).toHaveTextContent("v0.0.7");
     expect(screen.getByText("Dashboard connected")).toBeInTheDocument();
     expect(screen.getByText("Flow connected")).toBeInTheDocument();
   });
@@ -88,6 +90,32 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "连接状态：服务正常；重新连接" })).toBeInTheDocument();
     expect(serviceMocks.fetchHealth).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Dashboard connected")).toBeInTheDocument();
+  });
+
+  it("waits for first-run browser initialization before enabling workflows", async () => {
+    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null, port: 17891 });
+    serviceMocks.fetchHealth
+      .mockResolvedValueOnce({ ...health, browser_status: "initializing" })
+      .mockResolvedValueOnce(health);
+
+    render(<App />);
+
+    expect(await screen.findByText("正在初始化浏览器")).toBeInTheDocument();
+    expect(screen.getByText("Dashboard offline")).toBeInTheDocument();
+    expect(await screen.findByText("Dashboard connected")).toBeInTheDocument();
+  });
+
+  it("retries a failed browser initialization from the backend status", async () => {
+    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null, port: 17891 });
+    serviceMocks.fetchHealth
+      .mockResolvedValueOnce({ ...health, browser_status: "error" })
+      .mockResolvedValueOnce(health);
+    serviceMocks.initializeBrowser.mockResolvedValue({ ...health, browser_status: "initializing" });
+
+    render(<App />);
+
+    expect(await screen.findByText("Dashboard connected")).toBeInTheDocument();
+    expect(serviceMocks.initializeBrowser).toHaveBeenCalledTimes(1);
   });
 
   it("does not let an older connection result overwrite a newer retry", async () => {

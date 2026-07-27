@@ -57,6 +57,16 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .connection-badge:hover { border-color: #b8bec1; background: #f7f8f8; }
 .workspace-content { width: min(1180px, 100%); margin: 0 auto; padding: 28px; }
 .global-banner { margin: 0 0 14px; }
+.initialization-banner {
+  min-height: 48px; padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+  border: 1px solid #b8d7cf; border-radius: 6px; color: #245f51; background: #f2f8f6;
+}
+.initialization-banner div { display: grid; gap: 2px; min-width: 0; }
+.initialization-banner strong { font-size: 12px; }
+.initialization-banner span { color: #55736b; font-size: 11px; line-height: 1.4; }
+.status-spinner { flex: 0 0 auto; animation: status-spin 900ms linear infinite; }
+@keyframes status-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .status-spinner { animation: none; } }
 
 .section-label { margin: 0 0 5px; color: #337565; font-size: 10px; font-weight: 750; text-transform: uppercase; }
 .section-description { margin: 7px 0 0; color: #737b82; font-size: 12px; line-height: 1.5; }

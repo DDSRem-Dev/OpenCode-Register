@@ -20,6 +20,7 @@ from api.websocket import create_websocket_router
 from browser.cloakbrowser_client import CloakBrowserClient
 from browser.github_cleanup import GitHubAccountCleanup
 from browser.github_register import GitHubRegister
+from browser.initializer import BrowserInitializer
 from browser.opencode_login import OpenCodeLogin
 from config.model_catalog import OpenCodeGoModelClient
 from config.omo_writer import OmoConfigWriter
@@ -35,7 +36,7 @@ from scheduler.quota_scheduler import QuotaScheduler
 from storage.screenshots import ScreenshotStore
 from storage.service import AccountVaultService
 
-APP_VERSION = "0.0.6"
+APP_VERSION = "0.0.7"
 
 
 def create_app(
@@ -43,6 +44,7 @@ def create_app(
     quota_service: Optional[QuotaCheckService] = None,
     cleanup_service: Optional[AccountCleanupService] = None,
     application_version: str = APP_VERSION,
+    browser_initializer: Optional[BrowserInitializer] = None,
 ) -> FastAPI:
     """
     创建并配置本地 FastAPI 应用
@@ -51,12 +53,15 @@ def create_app(
     :param quota_service (QuotaCheckService): 可选的额度检查服务替身
     :param cleanup_service (AccountCleanupService): 可选的账号清理服务替身
     :param application_version (str): 应用程序版本
+    :param browser_initializer (BrowserInitializer): 可选的浏览器初始化管理器
 
     :return FastAPI: 配置完成的本地服务应用
     """
 
     http_client = httpx.AsyncClient()
-    browser_client = CloakBrowserClient()
+    if browser_initializer is None:
+        browser_initializer = BrowserInitializer()
+    browser_client = CloakBrowserClient(initializer=browser_initializer)
     settings = AppSettings.from_environment()
     if vault_service is None:
         vault_service = AccountVaultService(settings.data_directory / "accounts.db")
@@ -84,9 +89,10 @@ def create_app(
         pending_handler=completion_service.persist_pending,
         pending_status_handler=completion_service.mark_pending_status,
         screenshot_store=screenshot_store,
+        browser_initializer=browser_initializer,
     )
     if quota_service is None:
-        quota_service = QuotaCheckService(vault_service)
+        quota_service = QuotaCheckService(vault_service, browser_initializer=browser_initializer)
     if cleanup_service is None:
         cleanup_service = AccountCleanupService(
             vault_service,
@@ -109,12 +115,14 @@ def create_app(
         del application
         async with AsyncExitStack() as resources:
             resources.push_async_callback(http_client.aclose)
+            resources.push_async_callback(browser_initializer.close)
             resources.push_async_callback(browser_client.close)
             resources.push_async_callback(service.close)
             resources.push_async_callback(cleanup_service.close)
             resources.push_async_callback(quota_service.close)
             resources.push_async_callback(quota_scheduler.close)
             quota_scheduler.start()
+            browser_initializer.start()
             yield
 
     app = FastAPI(
@@ -139,7 +147,7 @@ def create_app(
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(Exception, unexpected_error_handler)
     app.include_router(
-        create_router(service, vault_service, settings.storage_mode, app.version),
+        create_router(service, vault_service, settings.storage_mode, app.version, browser_initializer),
         prefix="/api",
     )
     app.include_router(create_flow_control_router(service), prefix="/api")

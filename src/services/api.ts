@@ -35,12 +35,17 @@ export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse>
   const response = await fetch(`${backendHttpUrl()}/api/health`, { signal });
   if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}`);
   const payload: unknown = await response.json();
+  return parseHealthResponse(payload);
+}
+
+function parseHealthResponse(payload: unknown): HealthResponse {
   if (
     !isRecord(payload)
     || payload.status !== "ok"
     || payload.service !== "opencode-register-backend"
     || typeof payload.version !== "string"
     || (payload.storage_mode !== "system" && payload.storage_mode !== "sandbox")
+    || (payload.browser_status !== "initializing" && payload.browser_status !== "ready" && payload.browser_status !== "error")
   ) {
     throw new Error("本地服务返回了无效健康状态");
   }
@@ -49,7 +54,13 @@ export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse>
     service: payload.service,
     version: payload.version,
     storage_mode: payload.storage_mode,
+    browser_status: payload.browser_status,
   };
+}
+
+export async function initializeBrowser(signal?: AbortSignal): Promise<HealthResponse> {
+  const payload = await requestJson("/api/browser/initialize", { method: "POST", signal });
+  return parseHealthResponse(payload);
 }
 
 export async function fetchVaultStatus(signal?: AbortSignal): Promise<VaultStatus> {

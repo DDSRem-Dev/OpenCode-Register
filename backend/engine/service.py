@@ -4,6 +4,7 @@ from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional, Se
 from browser.base import GitHubRegistrationClient, OpenCodeAutomationClient
 from browser.cloakbrowser_client import CloakBrowserClient
 from browser.github_register import GitHubRegister
+from browser.initializer import BrowserInitializer
 from browser.opencode_login import OpenCodeLogin
 from browser.temp_mail import TempMailBrowser
 from engine.events import FlowEvent, create_flow_event
@@ -44,6 +45,7 @@ class CreateAccountService:
         pending_handler: Optional[Callable[[PendingAccountData], Awaitable[str]]] = None,
         pending_status_handler: Optional[Callable[[str, AccountStatus], Awaitable[None]]] = None,
         screenshot_store: Optional[ScreenshotStore] = None,
+        browser_initializer: Optional[BrowserInitializer] = None,
     ) -> None:
         """
         初始化账号创建流程服务
@@ -55,6 +57,7 @@ class CreateAccountService:
         :param pending_handler (Callable): GitHub 注册完成后的持久化边界
         :param pending_status_handler (Callable): 未完成账号状态更新边界
         :param screenshot_store (ScreenshotStore): 可选的已遮罩截图存储
+        :param browser_initializer (BrowserInitializer): 可选的共享浏览器初始化管理器
         """
 
         self._completion_handler = completion_handler
@@ -69,9 +72,9 @@ class CreateAccountService:
         self._account_browser_client: Optional[CloakBrowserClient] = None
         self._email_browser_client: Optional[CloakBrowserClient] = None
         if browser_factory is None:
-            self._account_browser_client = CloakBrowserClient()
+            self._account_browser_client = CloakBrowserClient(initializer=browser_initializer)
         if provider_factory is None:
-            self._email_browser_client = CloakBrowserClient(headless=True)
+            self._email_browser_client = CloakBrowserClient(headless=True, initializer=browser_initializer)
         if browser_factory is None:
             self._browser_factory = self._create_browsers
         else:

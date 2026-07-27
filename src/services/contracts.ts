@@ -3,6 +3,7 @@ export type HealthResponse = {
   service: string;
   version: string;
   storage_mode: "system" | "sandbox";
+  browser_status: "initializing" | "ready" | "error";
 };
 
 export type BackendProcessStatus = {

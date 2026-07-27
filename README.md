@@ -83,7 +83,9 @@ uv run --project backend python scripts/build_backend.py --placeholder
 占位文件前连 `cargo check` 都无法通过。占位文件是空文件，Rust 宿主会按长度拒绝并回落到开发期
 解释器，不会顶替真实后端。
 
-CloakBrowser 首次启动时也会自动下载浏览器二进制；上面的显式安装命令便于提前完成约 200 MB 的下载。
+CloakBrowser 浏览器二进制会在应用启动时自动检查，缺失时由后端在后台下载。界面会保持在
+“正在初始化浏览器”状态直至可用；失败后可点击右上角连接状态重新下载。上面的显式安装命令便于
+提前完成约 200 MB 的下载。
 
 ### 启动桌面应用
 
@@ -143,7 +145,7 @@ npm run tauri build
 产物位于 `src-tauri/target/release/bundle/`：macOS 为 `.app` 与 `.dmg`，Windows 为 NSIS 安装包。
 
 打包后的应用不再需要 Python、uv 或 Rust 工具链。CloakBrowser 的 Chromium 不随包分发，
-仍在首次使用时下载到 `~/.cloakbrowser`。
+应用首次启动时会自动下载到 `~/.cloakbrowser`，下载完成前不会启用依赖浏览器的工作流。
 
 PyInstaller 不支持交叉编译，每个架构必须在对应机器上构建；`.github/workflows/release.yml`
 在 tag 推送时按 macOS arm64、macOS Intel 和 Windows x64 三个 runner 出包并附校验和，

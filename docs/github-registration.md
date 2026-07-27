@@ -76,6 +76,8 @@ iframe、canvas、挑战控件、密钥单元格，以及当前流程已知的�
 
 CloakBrowser 使用自带的 Chromium 二进制和源码级指纹实现，后端通过其异步兼容 API 启动
 `headless=False` 浏览器。项目不配置代理、`humanize`、额外指纹参数或页面脚本；浏览器能力
-不得用于跳过 CAPTCHA、风控、手机号验证、支付或其他人工边界。首次运行会自动下载约 200 MB
-的浏览器二进制，也可以按 `docs/rules/03-commands.md` 预先安装。打包分发前必须单独确认
+不得用于跳过 CAPTCHA、风控、手机号验证、支付或其他人工边界。后端生命周期会在应用启动时检查
+浏览器二进制，缺失时在工作线程自动下载约 200 MB；`GET /api/health` 通过 `browser_status` 返回
+`initializing`、`ready` 或 `error`，`POST /api/browser/initialize` 用于显式重试。所有生产浏览器客户端
+在启动 Chromium 前等待同一个初始化任务，也可以按 `docs/rules/03-commands.md` 预先安装。打包分发前必须单独确认
 CloakBrowser 二进制许可证，当前版本不得把自动下载的二进制直接纳入安装包。
