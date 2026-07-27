@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OpenCode Register",
-  "version": "0.0.1",
+  "version": "0.0.6",
   "identifier": "dev.opencode.register",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -17,11 +17,14 @@
         "height": 760,
         "minWidth": 760,
         "minHeight": 560,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 14, "y": 16 },
         "resizable": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://127.0.0.1:17891 ws://127.0.0.1:17891; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

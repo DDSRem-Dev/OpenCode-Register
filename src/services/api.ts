@@ -1,11 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
 import type {
   AccountCleanupSession,
   AccountCleanupStatus,
   AccountStatus,
   AccountSummary,
   AutomaticConfiguration,
-  BackendProcessStatus,
   ConfigurationRepairResult,
   ErrorResponse,
   FlowEvent,
@@ -19,34 +17,39 @@ import type {
   QuotaInvalidReason,
   VaultStatus,
 } from "./contracts";
+import {
+  backendHttpUrl,
+  backendWebSocketUrl,
+} from "./backendConnection";
 
 export type * from "./contracts";
-
-export const BACKEND_URL = "http://127.0.0.1:17891";
-const WEBSOCKET_URL = "ws://127.0.0.1:17891";
-
-export function isTauriRuntime(): boolean {
-  return "__TAURI_INTERNALS__" in window;
-}
-
-export async function startBackend(): Promise<BackendProcessStatus> {
-  if (!isTauriRuntime()) return { running: false, pid: null };
-  return invoke<BackendProcessStatus>("start_backend");
-}
-
-export async function backendProcessStatus(): Promise<BackendProcessStatus> {
-  if (!isTauriRuntime()) return { running: false, pid: null };
-  return invoke<BackendProcessStatus>("backend_status");
-}
-
-export async function stopBackend(): Promise<void> {
-  if (isTauriRuntime()) await invoke("stop_backend");
-}
+export {
+  backendProcessStatus,
+  configureBackendPort,
+  isTauriRuntime,
+  startBackend,
+  stopBackend,
+} from "./backendConnection";
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  const response = await fetch(`${BACKEND_URL}/api/health`, { signal });
+  const response = await fetch(`${backendHttpUrl()}/api/health`, { signal });
   if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}`);
-  return response.json() as Promise<HealthResponse>;
+  const payload: unknown = await response.json();
+  if (
+    !isRecord(payload)
+    || payload.status !== "ok"
+    || payload.service !== "opencode-register-backend"
+    || typeof payload.version !== "string"
+    || (payload.storage_mode !== "system" && payload.storage_mode !== "sandbox")
+  ) {
+    throw new Error("本地服务返回了无效健康状态");
+  }
+  return {
+    status: payload.status,
+    service: payload.service,
+    version: payload.version,
+    storage_mode: payload.storage_mode,
+  };
 }
 
 export async function fetchVaultStatus(signal?: AbortSignal): Promise<VaultStatus> {
@@ -195,7 +198,7 @@ export async function cancelAccountCleanup(
 }
 
 export async function exportAccounts(bundlePassword: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(`${BACKEND_URL}/api/export`, {
+  const response = await fetch(`${backendHttpUrl()}/api/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ bundle_password: bundlePassword }),
@@ -240,7 +243,7 @@ export async function fetchFlow(flowId: string, signal?: AbortSignal): Promise<F
 }
 
 export function flowScreenshotUrl(flowId: string, screenshotId: string): string {
-  return `${BACKEND_URL}/api/flow/${encodeURIComponent(flowId)}/screenshot/${encodeURIComponent(screenshotId)}`;
+  return `${backendHttpUrl()}/api/flow/${encodeURIComponent(flowId)}/screenshot/${encodeURIComponent(screenshotId)}`;
 }
 
 export async function resumeFlow(
@@ -275,7 +278,7 @@ export function subscribeFlow(
 
   const connect = () => {
     try {
-      socket = new WebSocket(`${WEBSOCKET_URL}/ws/flow/${encodeURIComponent(flowId)}`);
+      socket = new WebSocket(`${backendWebSocketUrl()}/ws/flow/${encodeURIComponent(flowId)}`);
     } catch {
       onError("无法连接流程事件");
       if (!isClosed) reconnectTimer = window.setTimeout(connect, 1000);
@@ -309,7 +312,7 @@ async function requestFlow(path: string, init?: RequestInit): Promise<FlowSessio
 }
 
 async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(`${BACKEND_URL}${path}`, init);
+  const response = await fetch(`${backendHttpUrl()}${path}`, init);
   const payload: unknown = await response.json();
   if (!response.ok) throw new Error(parseErrorMessage(payload, response.status));
   return payload;

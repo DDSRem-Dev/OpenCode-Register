@@ -1,6 +1,8 @@
 # 本地服务 API
 
-本地 FastAPI 服务只监听 `127.0.0.1:17891`，所有 REST 路径使用 `/api` 前缀。完整机器可读契约由运行时的 `/api/openapi.json` 提供。
+本地 FastAPI 服务只监听 `127.0.0.1`，所有 REST 路径使用 `/api` 前缀。Tauri 宿主每次启动 sidecar 时
+分配随机可用端口，并在 `start_backend` 与 `backend_status` 的类型化 IPC 响应中返回 `port`；拆分调试模式
+默认使用 `17891`。完整机器可读契约由运行时的 `/api/openapi.json` 提供。
 
 `GET /api/health` 的 `storage_mode` 为 `system` 或 `sandbox`。沙盒模式由
 `OPENCODE_REGISTER_SANDBOX_DIR` 启用，供前端明确提示当前本地文件写入边界。

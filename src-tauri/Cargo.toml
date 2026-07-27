@@ -1,6 +1,6 @@
 [package]
 name = "opencode-register"
-version = "0.0.1"
+version = "0.0.6"
 description = "Desktop account manager for OpenCode"
 authors = ["OpenCode Register contributors"]
 edition = "2021"

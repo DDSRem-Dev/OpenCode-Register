@@ -1,6 +1,6 @@
 [project]
 name = "opencode-register-backend"
-version = "0.0.1"
+version = "0.0.6"
 description = "Local automation service for OpenCode Register"
 requires-python = ">=3.11"
 dependencies = [

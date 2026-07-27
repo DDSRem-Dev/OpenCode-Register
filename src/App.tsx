@@ -7,13 +7,23 @@ import {
   LayoutList,
   Plus,
 } from "lucide-react";
-import { fetchHealth, startBackend, type HealthResponse } from "./services/api";
+import {
+  configureBackendPort,
+  fetchHealth,
+  isTauriRuntime,
+  startBackend,
+  type HealthResponse,
+} from "./services/api";
 import { CreateFlow } from "./pages/CreateFlow";
 import { Dashboard } from "./pages/Dashboard";
 import { Settings } from "./pages/Settings";
 
 type ConnectionState = "connecting" | "connected" | "offline";
 type WorkspaceView = "accounts" | "create" | "transfer" | "settings";
+
+const BACKEND_START_RETRY_COUNT = 3;
+const HEALTH_PROBE_ATTEMPTS = 30;
+const HEALTH_PROBE_INTERVAL_MS = 500;
 
 const viewDetails: Record<WorkspaceView, { title: string; description: string }> = {
   accounts: { title: "账号", description: "查看状态、月度用量与本地号池成员" },
@@ -38,17 +48,30 @@ export default function App() {
     setError(null);
     setIsVaultUnlocked(false);
     try {
-      await startBackend();
-      if (connectionAttemptRef.current !== connectionAttempt) return;
-
       let response: HealthResponse | null = null;
-      for (let probeAttempt = 0; probeAttempt < 20; probeAttempt += 1) {
+      for (let startAttempt = 0; startAttempt <= BACKEND_START_RETRY_COUNT && !response; startAttempt += 1) {
         try {
-          response = await fetchHealth();
-          break;
-        } catch {
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          const backendStatus = await startBackend();
+          if (backendStatus.port === null) throw new Error("本地服务未提供连接端口");
+          configureBackendPort(backendStatus.port);
+        } catch (startError) {
+          if (startAttempt === BACKEND_START_RETRY_COUNT) throw startError;
+          await new Promise((resolve) => window.setTimeout(resolve, HEALTH_PROBE_INTERVAL_MS));
           if (connectionAttemptRef.current !== connectionAttempt) return;
+          continue;
+        }
+        if (connectionAttemptRef.current !== connectionAttempt) return;
+
+        for (let probeAttempt = 0; probeAttempt < HEALTH_PROBE_ATTEMPTS; probeAttempt += 1) {
+          try {
+            response = await fetchHealth();
+            break;
+          } catch {
+            if (probeAttempt < HEALTH_PROBE_ATTEMPTS - 1) {
+              await new Promise((resolve) => window.setTimeout(resolve, HEALTH_PROBE_INTERVAL_MS));
+            }
+            if (connectionAttemptRef.current !== connectionAttempt) return;
+          }
         }
       }
       if (!response) throw new Error("无法连接本地服务");
@@ -77,9 +100,11 @@ export default function App() {
     offline: "服务离线",
   }[connection];
   const activeDetails = viewDetails[activeView];
+  const isMacOs = isTauriRuntime() && navigator.userAgent.includes("Macintosh");
 
   return (
-    <div className="desktop-shell">
+    <div className={`desktop-shell${isMacOs ? " macos" : ""}`}>
+      {isMacOs && <div className="window-drag-region" data-tauri-drag-region />}
       <aside className="sidebar">
         <div className="app-brand">
           <div className="brand-mark">OC</div>
@@ -105,15 +130,18 @@ export default function App() {
       <section className="window-content">
         <header className="workspace-toolbar">
           <div><h1>{activeDetails.title}</h1><p>{activeDetails.description}</p></div>
-          <button
-            className={`connection-badge ${connection}`}
-            type="button"
-            onClick={() => void connect()}
-            aria-label={`连接状态：${statusLabel}；重新连接`}
-            title={`${statusLabel}，点击重新连接`}
-          >
-            <span className="status-dot" />
-          </button>
+          <div className="toolbar-status">
+            {health && <span className="app-version" aria-label={`软件版本 ${health.version}`}>v{health.version}</span>}
+            <button
+              className={`connection-badge ${connection}`}
+              type="button"
+              onClick={() => void connect()}
+              aria-label={`连接状态：${statusLabel}；重新连接`}
+              title={`${statusLabel}，点击重新连接`}
+            >
+              <span className="status-dot" />
+            </button>
+          </div>
         </header>
 
         <main className="workspace-content">

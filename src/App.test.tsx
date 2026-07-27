@@ -1,10 +1,12 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { HealthResponse } from "./services/contracts";
 
 const serviceMocks = vi.hoisted(() => ({
+  configureBackendPort: vi.fn(),
   fetchHealth: vi.fn(),
+  isTauriRuntime: vi.fn(() => false),
   startBackend: vi.fn(),
 }));
 
@@ -28,18 +30,19 @@ vi.mock("./pages/Settings", () => ({
 const health: HealthResponse = {
   status: "ok",
   service: "opencode-register-backend",
-  version: "0.0.1",
+  version: "0.0.6",
   storage_mode: "sandbox",
 };
 
 describe("App", () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
   it("connects the frontend shell to the local backend health contract", async () => {
-    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null });
+    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null, port: 17891 });
     serviceMocks.fetchHealth.mockResolvedValue(health);
 
     render(<App />);
@@ -47,12 +50,35 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "连接状态：服务正常；重新连接" })).toBeInTheDocument();
     expect(screen.queryByText("本地服务")).not.toBeInTheDocument();
     expect(screen.queryByText("opencode-register-backend")).not.toBeInTheDocument();
+    expect(serviceMocks.configureBackendPort).toHaveBeenCalledWith(17891);
+    expect(screen.getByLabelText("软件版本 0.0.6")).toHaveTextContent("v0.0.6");
     expect(screen.getByText("Dashboard connected")).toBeInTheDocument();
     expect(screen.getByText("Flow connected")).toBeInTheDocument();
   });
 
+  it("restarts the backend after the extended health probe window", async () => {
+    vi.useFakeTimers();
+    let probeCount = 0;
+    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null, port: 17891 });
+    serviceMocks.fetchHealth.mockImplementation(() => {
+      probeCount += 1;
+      return probeCount <= 30
+        ? Promise.reject(new Error("backend is still starting"))
+        : Promise.resolve(health);
+    });
+
+    render(<App />);
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(screen.getByRole("button", { name: "连接状态：服务正常；重新连接" })).toBeInTheDocument();
+    expect(serviceMocks.startBackend).toHaveBeenCalledTimes(2);
+    expect(serviceMocks.fetchHealth).toHaveBeenCalledTimes(31);
+  });
+
   it("retries the health probe without abandoning the current connection attempt", async () => {
-    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null });
+    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null, port: 17891 });
     serviceMocks.fetchHealth
       .mockRejectedValueOnce(new Error("backend is still starting"))
       .mockResolvedValueOnce(health);
@@ -69,7 +95,7 @@ describe("App", () => {
     const firstHealth = new Promise<HealthResponse>((resolve) => {
       resolveFirstHealth = resolve;
     });
-    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null });
+    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null, port: 17891 });
     serviceMocks.fetchHealth
       .mockReturnValueOnce(firstHealth)
       .mockResolvedValueOnce(health);
@@ -85,7 +111,7 @@ describe("App", () => {
   });
 
   it("switches desktop workspaces without unmounting their active state", async () => {
-    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null });
+    serviceMocks.startBackend.mockResolvedValue({ running: false, pid: null, port: 17891 });
     serviceMocks.fetchHealth.mockResolvedValue(health);
     render(<App />);
 

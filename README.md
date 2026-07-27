@@ -91,8 +91,8 @@ CloakBrowser 首次启动时也会自动下载浏览器二进制；上面的显�
 npm run tauri dev
 ```
 
-Tauri 启动时会自动使用 `backend/.venv` 中的 Python 解释器拉起本地服务。服务只监听
-`127.0.0.1:17891`，退出桌面应用时对应进程会一起停止。
+Tauri 启动时会自动使用 `backend/.venv` 中的 Python 解释器拉起本地服务。桌面宿主每次启动时
+在 `127.0.0.1` 上分配一个随机可用端口，并通过类型化 IPC 通知前端；退出桌面应用时对应进程会一起停止。
 
 也可以分别启动后端和浏览器版前端，便于调试：
 
@@ -164,8 +164,8 @@ npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-后端运行后可通过 `http://127.0.0.1:17891/api/health` 检查通信状态，API 文档位于
-`http://127.0.0.1:17891/api/docs`。
+拆分调试时，后端运行后可通过 `http://127.0.0.1:17891/api/health` 检查通信状态，API 文档位于
+`http://127.0.0.1:17891/api/docs`。Tauri 桌面模式使用宿主通过 IPC 返回的动态端口。
 
 本地账号库默认写入当前平台的应用数据目录。仅设置 `OPENCODE_REGISTER_DATA_DIR` 不会隔离
 OpenCode 配置；需要完整隔离时必须使用 `OPENCODE_REGISTER_SANDBOX_DIR`。

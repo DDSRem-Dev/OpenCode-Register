@@ -8,6 +8,7 @@ export type HealthResponse = {
 export type BackendProcessStatus = {
   running: boolean;
   pid: number | null;
+  port: number | null;
 };
 
 export type VaultStatus = {

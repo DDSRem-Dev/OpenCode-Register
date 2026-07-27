@@ -39,7 +39,7 @@ describe("Dashboard", () => {
 
     const passwordInput = await screen.findByLabelText("主密码");
     fireEvent.change(passwordInput, { target: { value: "account vault master password" } });
-    fireEvent.click(screen.getByRole("button", { name: "解锁" }));
+    fireEvent.click(screen.getByRole("button", { name: "解锁账号库" }));
 
     expect(await screen.findByText("account-user")).toBeInTheDocument();
     expect(screen.getByText("p***@example.test")).toBeInTheDocument();
@@ -121,13 +121,15 @@ describe("Dashboard", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<Dashboard isBackendConnected onVaultStatusChange={vi.fn()} />);
 
-    fireEvent.change(await screen.findByLabelText("主密码"), {
+    expect(await screen.findByText("配置主密码")).toBeInTheDocument();
+    expect(screen.getByText(/遗忘后无法找回/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("设置主密码"), {
       target: { value: "new account vault master password" },
     });
-    fireEvent.change(screen.getByLabelText("确认主密码"), {
+    fireEvent.change(screen.getByLabelText("再次输入主密码"), {
       target: { value: "new account vault master password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "解锁" }));
+    fireEvent.click(screen.getByRole("button", { name: "完成配置" }));
 
     expect(await screen.findByText("尚未保存任何账号")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -168,14 +170,14 @@ describe("Dashboard", () => {
     fireEvent.change(await screen.findByLabelText("主密码"), {
       target: { value: "wrong account vault master password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "解锁" }));
+    fireEvent.click(screen.getByRole("button", { name: "解锁账号库" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("主密码不正确");
     expect(screen.getByLabelText("主密码")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("主密码"), {
       target: { value: "retry account vault master password" },
     });
-    expect(screen.getByRole("button", { name: "解锁" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "解锁账号库" })).toBeEnabled();
     expect(onVaultStatusChange).toHaveBeenLastCalledWith(false);
   });
 

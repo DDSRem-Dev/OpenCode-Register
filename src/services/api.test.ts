@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyAutomaticConfiguration,
+  configureBackendPort,
   copyAccountApiKey,
   exportAccounts,
   fetchAutomaticConfiguration,
@@ -66,6 +67,7 @@ class ThrowingWebSocket {
 
 describe("fetchHealth", () => {
   afterEach(() => {
+    configureBackendPort(17891);
     vi.restoreAllMocks();
     FakeWebSocket.instances = [];
   });
@@ -76,21 +78,52 @@ describe("fetchHealth", () => {
       json: async () => ({
         status: "ok",
         service: "opencode-register-backend",
-        version: "0.0.1",
+        version: "0.0.6",
         storage_mode: "sandbox",
       }),
     }));
 
     await expect(fetchHealth()).resolves.toMatchObject({
       status: "ok",
-      version: "0.0.1",
+      version: "0.0.6",
       storage_mode: "sandbox",
     });
+  });
+
+  it("uses the configured sidecar port for HTTP and WebSocket calls", async () => {
+    configureBackendPort(43123);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => manualSession });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+
+    await startAccountFlow();
+    const unsubscribe = subscribeFlow("flow-test-1", vi.fn(), vi.fn());
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:43123/api/accounts",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(FakeWebSocket.instances[0].url).toBe("ws://127.0.0.1:43123/ws/flow/flow-test-1");
+    unsubscribe();
+  });
+
+  it("rejects an invalid sidecar port", () => {
+    expect(() => configureBackendPort(0)).toThrow("无效端口");
+    expect(() => configureBackendPort(65536)).toThrow("无效端口");
   });
 
   it("rejects non-success responses", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
     await expect(fetchHealth()).rejects.toThrow("HTTP 503");
+  });
+
+  it("rejects an unrelated service on the selected local port", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: "ok", service: "unrelated-local-service", version: "1.0.0" }),
+    }));
+
+    await expect(fetchHealth()).rejects.toThrow("无效健康状态");
   });
 
   it("starts an account flow with the default provider", async () => {

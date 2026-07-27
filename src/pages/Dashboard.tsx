@@ -244,39 +244,54 @@ export function Dashboard({
       {state.status === "locked" && (
         <form className="unlock-panel" onSubmit={(event) => void handleUnlock(event)}>
           <div className="unlock-icon"><KeyRound size={20} /></div>
-          <label className="unlock-field">
-            <span>主密码</span>
-            <input
-              type="password"
-              value={masterPassword}
-              onChange={(event) => setMasterPassword(event.target.value)}
-              minLength={8}
-              maxLength={256}
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          {!state.isInitialized && (
+          <div className="unlock-copy">
+            <strong>{state.isInitialized ? "解锁账号库" : "配置主密码"}</strong>
+            <span>
+              {state.isInitialized
+                ? "输入主密码后即可查看账号，并继续创建或管理账号。"
+                : "主密码用于加密保存在本机的账号凭据。请设置至少 8 位并妥善保管，遗忘后无法找回。"}
+            </span>
+          </div>
+          <div className={`unlock-controls${state.isInitialized ? " single" : ""}`}>
             <label className="unlock-field">
-              <span>确认主密码</span>
+              <span>{state.isInitialized ? "主密码" : "设置主密码"}</span>
               <input
                 type="password"
-                value={masterPasswordConfirmation}
-                onChange={(event) => setMasterPasswordConfirmation(event.target.value)}
+                value={masterPassword}
+                onChange={(event) => setMasterPassword(event.target.value)}
                 minLength={8}
                 maxLength={256}
-                autoComplete="new-password"
+                autoComplete={state.isInitialized ? "current-password" : "new-password"}
                 required
               />
             </label>
-          )}
-          <button className="primary-button" type="submit" disabled={isUnlocking || masterPassword.length < 8}>
-            <KeyRound size={16} />
-            {isUnlocking ? "正在解锁" : "解锁"}
-          </button>
+            {!state.isInitialized && (
+              <label className="unlock-field">
+                <span>再次输入主密码</span>
+                <input
+                  type="password"
+                  value={masterPasswordConfirmation}
+                  onChange={(event) => setMasterPasswordConfirmation(event.target.value)}
+                  minLength={8}
+                  maxLength={256}
+                  autoComplete="new-password"
+                  required
+                />
+              </label>
+            )}
+            <button className="primary-button" type="submit" disabled={isUnlocking || masterPassword.length < 8}>
+              <KeyRound size={16} />
+              {state.isInitialized
+                ? (isUnlocking ? "正在解锁" : "解锁账号库")
+                : (isUnlocking ? "正在配置" : "完成配置")}
+            </button>
+          </div>
           {unlockError && (
             <div className="error-banner" role="alert">
-              <div><strong>无法解锁账号库</strong><span>{unlockError}</span></div>
+              <div>
+                <strong>{state.isInitialized ? "无法解锁账号库" : "无法配置主密码"}</strong>
+                <span>{unlockError}</span>
+              </div>
             </div>
           )}
         </form>

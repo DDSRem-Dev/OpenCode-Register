@@ -1,7 +1,7 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::python_sidecar::PythonSidecar;
+use crate::python_sidecar::{PythonSidecar, PythonSidecarStatus};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -9,11 +9,16 @@ use crate::python_sidecar::PythonSidecar;
 pub struct BackendStatus {
     running: bool,
     pid: Option<u32>,
+    port: Option<u16>,
 }
 
-impl From<(bool, Option<u32>)> for BackendStatus {
-    fn from((running, pid): (bool, Option<u32>)) -> Self {
-        Self { running, pid }
+impl From<PythonSidecarStatus> for BackendStatus {
+    fn from(status: PythonSidecarStatus) -> Self {
+        Self {
+            running: status.running,
+            pid: status.pid,
+            port: status.port,
+        }
     }
 }
 
