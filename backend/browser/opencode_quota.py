@@ -6,29 +6,24 @@ from urllib.parse import urlparse
 
 from playwright.async_api import Error as BrowserError
 from playwright.async_api import Page
-from pydantic import SecretStr
 
 from browser.base import OpenCodeQuotaBrowserClient
 from browser.cloakbrowser_client import CloakBrowserSession
 from browser.models import OpenCodeQuotaPageResult, OpenCodeQuotaPageStatus
 from engine.models import ManualInterventionReason
+from storage.models import BrowserAuthState
 
 GITHUB_HOST = "github.com"
-GITHUB_LOGIN_URL = "https://github.com/login"
-GITHUB_LOGIN_PATH = "/login"
-GITHUB_OAUTH_PATH = "/login/oauth/authorize"
-GITHUB_USERNAME_SELECTOR = "#login_field"
-GITHUB_PASSWORD_SELECTOR = "#password"
+GITHUB_HOME_URL = "https://github.com/"
+GITHUB_AUTH_HOSTS = {GITHUB_HOST}
 GITHUB_ACTOR_SELECTOR = 'meta[name="user-login"]'
-GITHUB_LOGIN_ERROR_SELECTOR = ".flash-error:visible, #js-flash-container .flash:visible"
 VISIBLE_CAPTCHA_SELECTORS = "iframe[src*='captcha']:visible, [data-sitekey]:visible, .js-captcha:visible"
 TWO_FACTOR_PATH_PATTERN = re.compile(r"^/sessions/(?:two-factor|verified-device)")
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 
-OPENCODE_AUTH_URL = "https://opencode.ai/auth"
 OPENCODE_HOST = "opencode.ai"
 OPENCODE_AUTH_HOST = "auth.opencode.ai"
-OPENCODE_PROVIDER_SELECTOR = 'a[href="/github/authorize"]'
+OPENCODE_AUTH_HOSTS = {OPENCODE_HOST, OPENCODE_AUTH_HOST}
 OPENCODE_WORKSPACE_PATTERN = re.compile(r"^/workspace/(wrk_[A-Za-z0-9]+)(?:/|$)")
 WORKSPACE_ID_PATTERN = re.compile(r"^wrk_[A-Za-z0-9]+$")
 GO_SUBSCRIBE_BUTTON_NAMES = ("订阅 Go", "Subscribe to Go", "Subscribe Go")
@@ -57,15 +52,17 @@ class OpenCodeQuotaBrowser(OpenCodeQuotaBrowserClient):
     async def start_check(
         self,
         github_username: str,
-        github_password: SecretStr,
         workspace_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
     ) -> OpenCodeQuotaPageResult:
         """
         登录精确 GitHub 身份并检查对应 OpenCode workspace 额度
 
         :param github_username (str): 待检查账号的 GitHub 用户名
-        :param github_password (SecretStr): 待检查账号的 GitHub 密码
         :param workspace_id (str): 待检查账号的 OpenCode workspace 标识
+        :param github_auth_state (BrowserAuthState): 已保存 GitHub 认证状态
+        :param opencode_auth_state (BrowserAuthState): 已保存 OpenCode 认证状态
 
         :return OpenCodeQuotaPageResult: 当前仪表盘额度检查结果
         """
@@ -75,19 +72,16 @@ class OpenCodeQuotaBrowser(OpenCodeQuotaBrowserClient):
         self._github_username = github_username
         self._workspace_id = workspace_id
         try:
+            self._browser_session.restore_auth_states([github_auth_state, opencode_auth_state])
             page = await self._browser_session.page()
-            await page.goto(GITHUB_LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
-            if not self._is_host(page, GITHUB_HOST) or urlparse(page.url).path != GITHUB_LOGIN_PATH:
-                return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-            await page.locator(GITHUB_USERNAME_SELECTOR).fill(github_username)
-            await page.locator(GITHUB_PASSWORD_SELECTOR).fill(github_password.get_secret_value())
-            await page.get_by_role("button", name="Sign in", exact=True).click(timeout=15_000)
-            authentication = await self._wait_for_github(page)
-            if authentication is not None:
-                return authentication
-            return await self._open_opencode(page)
+            await page.goto(GITHUB_HOME_URL, wait_until="domcontentloaded", timeout=30_000)
+            github_result = await self._validate_github_session(page)
+            if github_result is not None:
+                return github_result
+            refreshed_github_state = await self._browser_session.capture_auth_state(GITHUB_AUTH_HOSTS)
+            return await self._read_dashboard(page, workspace_id, refreshed_github_state)
         except BrowserError:
-            return self._unavailable("quota_browser_login_failed", "无法通过后台浏览器登录额度检查账号")
+            return self._unavailable("quota_browser_session_failed", "无法使用保存的浏览器认证状态检查额度")
 
     async def close(self) -> None:
         """
@@ -100,71 +94,44 @@ class OpenCodeQuotaBrowser(OpenCodeQuotaBrowserClient):
         self._workspace_id = None
         await self._browser_session.close()
 
-    async def _wait_for_github(self, page: Page) -> Optional[OpenCodeQuotaPageResult]:
-        deadline = monotonic() + 15
-        while monotonic() < deadline:
-            actor = await self._actor_login(page)
-            if actor is not None:
-                username = self._github_username
-                if username is None or actor.casefold() != username.casefold():
-                    return self._unavailable("quota_browser_identity_mismatch", "当前 GitHub 身份与额度检查目标不一致")
-                return None
-            if not self._is_host(page, GITHUB_HOST):
-                return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-            if await page.locator(VISIBLE_CAPTCHA_SELECTORS).count() > 0:
-                return self._manual(ManualInterventionReason.CAPTCHA)
-            path = urlparse(page.url).path
-            if TWO_FACTOR_PATH_PATTERN.match(path) is not None:
-                return self._manual(ManualInterventionReason.PHONE_VERIFICATION)
-            if path == GITHUB_LOGIN_PATH and await page.locator(GITHUB_LOGIN_ERROR_SELECTOR).count() > 0:
-                return OpenCodeQuotaPageResult(status=OpenCodeQuotaPageStatus.INVALID)
-            await asyncio.sleep(0.25)
-        return self._manual(ManualInterventionReason.TIMEOUT)
+    async def _validate_github_session(self, page: Page) -> Optional[OpenCodeQuotaPageResult]:
+        if not self._is_host(page, GITHUB_HOST):
+            return self._auth_required("quota_github_session_expired", "保存的 GitHub 登录状态已失效")
+        if await page.locator(VISIBLE_CAPTCHA_SELECTORS).count() > 0:
+            return self._manual(ManualInterventionReason.CAPTCHA)
+        if TWO_FACTOR_PATH_PATTERN.match(urlparse(page.url).path) is not None:
+            return self._manual(ManualInterventionReason.PHONE_VERIFICATION)
+        actor = await self._actor_login(page)
+        if actor is None:
+            return self._auth_required("quota_github_session_expired", "保存的 GitHub 登录状态已失效")
+        username = self._github_username
+        if username is None or actor.casefold() != username.casefold():
+            return self._unavailable("quota_browser_identity_mismatch", "当前 GitHub 身份与额度检查目标不一致")
+        return None
 
-    async def _open_opencode(self, page: Page) -> OpenCodeQuotaPageResult:
-        await page.goto(OPENCODE_AUTH_URL, wait_until="domcontentloaded", timeout=30_000)
-        if not self._is_host(page, OPENCODE_AUTH_HOST):
-            return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-        provider = page.locator(OPENCODE_PROVIDER_SELECTOR)
-        if await provider.count() != 1:
-            return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-        await provider.click(timeout=15_000)
-        return await self._wait_for_workspace(page)
-
-    async def _wait_for_workspace(self, page: Page) -> OpenCodeQuotaPageResult:
-        deadline = monotonic() + 30
-        while monotonic() < deadline:
-            workspace_id = self._workspace_from_url(page.url)
-            if workspace_id is not None:
-                if workspace_id != self._workspace_id:
-                    return self._unavailable(
-                        "quota_browser_workspace_mismatch",
-                        "当前 OpenCode workspace 与额度检查目标不一致",
-                    )
-                return await self._read_dashboard(page, workspace_id)
-            if self._is_host(page, GITHUB_HOST):
-                if urlparse(page.url).path != GITHUB_OAUTH_PATH:
-                    return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-                authorize = page.get_by_role("button", name="Authorize", exact=True)
-                if await authorize.count() != 1 or not await authorize.is_enabled():
-                    return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-                await authorize.click(timeout=15_000)
-            elif self._is_host(page, OPENCODE_AUTH_HOST):
-                await asyncio.sleep(0.25)
-            else:
-                return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-            await asyncio.sleep(0.25)
-        return self._manual(ManualInterventionReason.TIMEOUT)
-
-    async def _read_dashboard(self, page: Page, workspace_id: str) -> OpenCodeQuotaPageResult:
+    async def _read_dashboard(
+        self,
+        page: Page,
+        workspace_id: str,
+        github_auth_state: BrowserAuthState,
+    ) -> OpenCodeQuotaPageResult:
         await page.goto(
             f"https://{OPENCODE_HOST}/workspace/{workspace_id}/go",
             wait_until="domcontentloaded",
             timeout=30_000,
         )
+        if self._is_host(page, OPENCODE_AUTH_HOST):
+            return self._auth_required("quota_opencode_session_expired", "保存的 OpenCode 登录状态已失效")
         if self._workspace_from_url(page.url) != workspace_id:
             return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-        return await self._read_dashboard_usage(page)
+        result = await self._read_dashboard_usage(page)
+        opencode_auth_state = await self._browser_session.capture_auth_state(OPENCODE_AUTH_HOSTS)
+        return result.model_copy(
+            update={
+                "github_auth_state": github_auth_state,
+                "opencode_auth_state": opencode_auth_state,
+            }
+        )
 
     async def _read_dashboard_usage(self, page: Page) -> OpenCodeQuotaPageResult:
         deadline = monotonic() + 15
@@ -212,6 +179,14 @@ class OpenCodeQuotaBrowser(OpenCodeQuotaBrowserClient):
     @staticmethod
     def _updated(usage_percent: int) -> OpenCodeQuotaPageResult:
         return OpenCodeQuotaPageResult(status=OpenCodeQuotaPageStatus.UPDATED, usage_percent=usage_percent)
+
+    @staticmethod
+    def _auth_required(code: str, message: str) -> OpenCodeQuotaPageResult:
+        return OpenCodeQuotaPageResult(
+            status=OpenCodeQuotaPageStatus.AUTH_REQUIRED,
+            error_code=code,
+            error_message=message,
+        )
 
     @staticmethod
     def _manual(reason: ManualInterventionReason) -> OpenCodeQuotaPageResult:

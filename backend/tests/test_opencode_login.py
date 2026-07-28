@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional, cast
+from typing import List, Optional, Set, cast
 
 import pytest
 from playwright.async_api import Page
@@ -9,6 +9,7 @@ from browser.cloakbrowser_client import CloakBrowserSession
 from browser.models import OpenCodePageStatus
 from browser.opencode_login import OPENCODE_AUTH_URL, OpenCodeLogin
 from engine.models import ManualInterventionReason
+from storage.models import BrowserAuthState
 
 
 class FakeOpenCodeLocator:
@@ -191,6 +192,18 @@ class FakeOpenCodeSession:
         """
 
         return cast(Page, self._page)
+
+    async def capture_auth_state(self, allowed_hosts: Set[str]) -> BrowserAuthState:
+        """
+        返回带目标域标记的空认证状态
+
+        :param allowed_hosts (Set): 允许的认证主机
+
+        :return BrowserAuthState: 测试认证状态
+        """
+
+        assert allowed_hosts
+        return BrowserAuthState()
 
 
 @pytest.mark.anyio

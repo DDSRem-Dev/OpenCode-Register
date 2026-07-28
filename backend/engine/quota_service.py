@@ -8,7 +8,7 @@ from browser.initializer import BrowserInitializer
 from browser.models import OpenCodeQuotaPageStatus
 from browser.opencode_quota import OpenCodeQuotaBrowser
 from scheduler.models import QuotaRefreshResult, QuotaRefreshStatus
-from storage.models import Account, AccountStatus, QuotaInvalidReason, utc_now
+from storage.models import Account, AccountStatus, BrowserAuthState, QuotaInvalidReason, utc_now
 from storage.repositories import AccountNotFoundError
 from storage.service import AccountVaultService
 
@@ -128,17 +128,43 @@ class QuotaCheckService:
             await self._cloakbrowser_client.close()
 
     async def _refresh_browser(self, account: Account) -> QuotaRefreshResult:
+        if account.github_auth_state is None or account.opencode_auth_state is None:
+            return QuotaRefreshResult(
+                account_id=account.uuid,
+                status=QuotaRefreshStatus.UNAVAILABLE,
+                message="账号尚未保存浏览器登录状态，需要重新完成一次登录授权",
+            )
         client = self._browser_client_factory()
         try:
             result = await client.start_check(
                 account.github_username,
-                account.github_password,
                 account.opencode_workspace_id,
+                account.github_auth_state,
+                account.opencode_auth_state,
             )
         finally:
             await client.close()
         if result.status == OpenCodeQuotaPageStatus.UPDATED and result.usage_percent is not None:
-            return await self._store_snapshot(account.uuid, result.usage_percent, utc_now())
+            return await self._store_snapshot(
+                account.uuid,
+                result.usage_percent,
+                utc_now(),
+                result.github_auth_state,
+                result.opencode_auth_state,
+            )
+        if result.github_auth_state is not None and result.opencode_auth_state is not None:
+            await asyncio.to_thread(
+                self._vault_service.update_auth_states,
+                account.uuid,
+                result.github_auth_state,
+                result.opencode_auth_state,
+            )
+        if result.status == OpenCodeQuotaPageStatus.AUTH_REQUIRED:
+            return QuotaRefreshResult(
+                account_id=account.uuid,
+                status=QuotaRefreshStatus.UNAVAILABLE,
+                message=result.error_message or "保存的浏览器登录状态已失效，需要重新授权",
+            )
         if result.status == OpenCodeQuotaPageStatus.INVALID:
             await asyncio.to_thread(
                 self._vault_service.clear_quota,
@@ -187,6 +213,8 @@ class QuotaCheckService:
         account_id: str,
         usage_percent: int,
         checked_at: datetime,
+        github_auth_state: Optional[BrowserAuthState],
+        opencode_auth_state: Optional[BrowserAuthState],
     ) -> QuotaRefreshResult:
         status = AccountStatus.EXHAUSTED if usage_percent >= 100 else AccountStatus.ACTIVE
         await asyncio.to_thread(
@@ -196,6 +224,8 @@ class QuotaCheckService:
             usage_percent,
             checked_at,
             status,
+            github_auth_state,
+            opencode_auth_state,
         )
         refresh_status = (
             QuotaRefreshStatus.EXHAUSTED if status == AccountStatus.EXHAUSTED else QuotaRefreshStatus.UPDATED

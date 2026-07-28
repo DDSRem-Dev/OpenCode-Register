@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from storage.models import BrowserAuthState
+
 
 class FlowStatus(StrEnum):
     """
@@ -124,6 +126,8 @@ class AccountCompletionData(BaseModel):
     github_password: SecretStr = Field(..., description="GitHub 密码")
     opencode_workspace_id: str = Field(..., description="OpenCode 工作区标识")
     opencode_api_key: SecretStr = Field(..., description="OpenCode API Key")
+    github_auth_state: Optional[BrowserAuthState] = Field(default=None, description="GitHub 浏览器认证状态")
+    opencode_auth_state: Optional[BrowserAuthState] = Field(default=None, description="OpenCode 浏览器认证状态")
     email_provider: str = Field(..., description="临时邮箱 provider 名称")
     temp_email: str = Field(..., description="临时邮箱地址")
 
@@ -138,6 +142,7 @@ class PendingAccountData(BaseModel):
     github_username: str = Field(..., description="GitHub 用户名")
     github_email: str = Field(..., description="GitHub 注册邮箱")
     github_password: SecretStr = Field(..., description="GitHub 密码")
+    github_auth_state: Optional[BrowserAuthState] = Field(default=None, description="GitHub 浏览器认证状态")
     email_provider: str = Field(..., description="临时邮箱 provider 名称")
     temp_email: str = Field(..., description="临时邮箱地址")
 

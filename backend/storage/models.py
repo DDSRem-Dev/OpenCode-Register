@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Optional, Union
+from typing import List, Literal, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -65,6 +65,70 @@ class AccountCleanupState(StrEnum):
     REMOTE_DELETED = "remote_deleted"
 
 
+class BrowserCookieState(BaseModel):
+    """
+    加密浏览器认证状态中的单个 Cookie
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=256, description="Cookie 名称")
+    value: SecretStr = Field(..., max_length=16_384, description="Cookie 敏感值")
+    domain: str = Field(..., min_length=1, max_length=253, description="Cookie 适用域")
+    path: str = Field(..., min_length=1, max_length=2_048, description="Cookie 适用路径")
+    expires: float = Field(..., description="Cookie Unix 过期时间，负数表示会话级")
+    http_only: bool = Field(..., description="是否禁止页面脚本读取")
+    secure: bool = Field(..., description="是否仅通过 HTTPS 发送")
+    same_site: Literal["Strict", "Lax", "None"] = Field(..., description="Cookie SameSite 策略")
+
+
+class BrowserStorageEntry(BaseModel):
+    """
+    加密浏览器认证状态中的单个 localStorage 条目
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=512, description="localStorage 条目名称")
+    value: SecretStr = Field(..., max_length=131_072, description="localStorage 敏感值")
+
+
+class BrowserOriginState(BaseModel):
+    """
+    单个受信任来源的浏览器存储状态
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    origin: str = Field(..., min_length=1, max_length=2_048, description="HTTPS 来源")
+    local_storage: List[BrowserStorageEntry] = Field(
+        default_factory=list,
+        max_length=256,
+        description="来源 localStorage 条目",
+    )
+
+
+class BrowserAuthState(BaseModel):
+    """
+    可加密持久化的版本化浏览器认证状态
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    format_version: int = Field(default=1, ge=1, le=1, description="浏览器认证状态格式版本")
+    captured_at: datetime = Field(default_factory=utc_now, description="认证状态捕获时间")
+    cookies: List[BrowserCookieState] = Field(
+        default_factory=list,
+        max_length=512,
+        description="受信任域 Cookie 列表",
+    )
+    origins: List[BrowserOriginState] = Field(
+        default_factory=list,
+        max_length=8,
+        description="受信任来源存储列表",
+    )
+
+
 class AutomaticConfigurationSettings(BaseModel):
     """
     本地账号自动配置设置
@@ -104,6 +168,8 @@ class AccountCreate(BaseModel):
     opencode_workspace_id: str = Field(..., description="OpenCode 工作区标识")
     opencode_api_key: SecretStr = Field(..., description="OpenCode API Key")
     opencode_user_id: Optional[str] = Field(default=None, description="OpenCode 用户标识")
+    github_auth_state: Optional[BrowserAuthState] = Field(default=None, description="加密保存前的 GitHub 认证状态")
+    opencode_auth_state: Optional[BrowserAuthState] = Field(default=None, description="加密保存前的 OpenCode 认证状态")
     email_provider: str = Field(..., description="临时邮箱 provider 名称")
     temp_email: str = Field(..., description="临时邮箱地址")
     status: AccountStatus = Field(default=AccountStatus.ACTIVE, description="账号状态")
@@ -124,6 +190,8 @@ class PendingAccountCreate(BaseModel):
     github_email: str = Field(..., description="GitHub 注册邮箱")
     github_password: SecretStr = Field(..., description="GitHub 密码")
     github_created_at: datetime = Field(default_factory=utc_now, description="GitHub 账号创建时间")
+    github_auth_state: Optional[BrowserAuthState] = Field(default=None, description="加密保存前的 GitHub 认证状态")
+    opencode_auth_state: Optional[BrowserAuthState] = Field(default=None, description="加密保存前的 OpenCode 认证状态")
     email_provider: str = Field(..., description="临时邮箱 provider 名称")
     temp_email: str = Field(..., description="临时邮箱地址")
     status: AccountStatus = Field(default=AccountStatus.PENDING_SETUP, description="账号状态")

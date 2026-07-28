@@ -88,6 +88,7 @@ def create_app(
         browser_factory=create_account_browsers,
         pending_handler=completion_service.persist_pending,
         pending_status_handler=completion_service.mark_pending_status,
+        auth_state_handler=completion_service.update_pending_auth_states,
         screenshot_store=screenshot_store,
         browser_initializer=browser_initializer,
     )

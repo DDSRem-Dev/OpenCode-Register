@@ -70,9 +70,12 @@ class AccountCleanupFlow:
 
         if persisted_state == AccountCleanupState.REMOTE_DELETED:
             return await self._finish_local_cleanup()
+        if self._account.github_auth_state is None:
+            return await self._fail("github_cleanup_auth_required", "账号尚未保存 GitHub 登录状态，需要重新授权")
         result = await self._github_client.start_cleanup(
             self._account.github_username,
             self._account.github_password,
+            self._account.github_auth_state,
         )
         return await self._apply_browser_result(result)
 
@@ -127,6 +130,11 @@ class AccountCleanupFlow:
             self._session.status = AccountCleanupStatus.MANUAL_REQUIRED
             self._session.manual_intervention = _manual_intervention(reason)
             return self.snapshot()
+        if result.status == GitHubCleanupPageStatus.AUTH_REQUIRED:
+            return await self._fail(
+                result.error_code or "github_cleanup_auth_required",
+                result.error_message or "保存的 GitHub 登录状态已失效，需要重新授权",
+            )
         if result.status == GitHubCleanupPageStatus.INVALID:
             if isinstance(self._account, PendingAccount):
                 await asyncio.to_thread(

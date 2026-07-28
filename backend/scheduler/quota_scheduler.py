@@ -67,11 +67,15 @@ class QuotaScheduler:
 
     async def _run(self) -> None:
         while not self._stop_event.is_set():
+            delay_seconds = await self._refresh_delay()
             try:
-                await self._service.refresh_all()
-            except VaultLockedError:
-                pass
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval_seconds)
+                await asyncio.wait_for(self._stop_event.wait(), timeout=delay_seconds)
             except TimeoutError:
                 continue
+
+    async def _refresh_delay(self) -> int:
+        try:
+            await self._service.refresh_all()
+        except VaultLockedError:
+            return min(60, self._interval_seconds)
+        return self._interval_seconds

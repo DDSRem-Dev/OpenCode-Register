@@ -1,6 +1,9 @@
+import json
 import sqlite3
 from datetime import datetime
 from typing import List, Optional, Tuple
+
+from pydantic import SecretStr, ValidationError
 
 from storage.crypto import FieldCipher
 from storage.db import Database
@@ -12,6 +15,7 @@ from storage.models import (
     AccountRecord,
     AccountStatus,
     AccountSummary,
+    BrowserAuthState,
     PendingAccount,
     PendingAccountCreate,
     QuotaInvalidReason,
@@ -69,6 +73,8 @@ class AccountRepository:
             account.opencode_workspace_id,
             self._cipher.encrypt(account.opencode_api_key),
             account.opencode_user_id,
+            self._encrypt_auth_state(account.github_auth_state),
+            self._encrypt_auth_state(account.opencode_auth_state),
             account.email_provider,
             account.temp_email,
             account.status.value,
@@ -85,9 +91,10 @@ class AccountRepository:
                     INSERT INTO accounts (
                         uuid, github_username, github_email, github_password, github_created_at,
                         opencode_provider_name, opencode_workspace_id, opencode_api_key, opencode_user_id,
+                        github_auth_state, opencode_auth_state,
                         email_provider, temp_email, status, opencode_configured, omo_configured,
                         created_at, updated_at, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values,
                 )
@@ -116,8 +123,9 @@ class AccountRepository:
                     """
                     INSERT INTO pending_accounts (
                         uuid, github_username, github_email, github_password, github_created_at,
+                        github_auth_state, opencode_auth_state,
                         email_provider, temp_email, status, created_at, updated_at, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         account.uuid,
@@ -125,6 +133,8 @@ class AccountRepository:
                         account.github_email,
                         self._cipher.encrypt(account.github_password),
                         _serialize_datetime(account.github_created_at),
+                        self._encrypt_auth_state(account.github_auth_state),
+                        self._encrypt_auth_state(account.opencode_auth_state),
                         account.email_provider,
                         account.temp_email,
                         account.status.value,
@@ -172,9 +182,10 @@ class AccountRepository:
                     INSERT INTO accounts (
                         uuid, github_username, github_email, github_password, github_created_at,
                         opencode_provider_name, opencode_workspace_id, opencode_api_key, opencode_user_id,
+                        github_auth_state, opencode_auth_state,
                         email_provider, temp_email, status, opencode_configured, omo_configured,
                         created_at, updated_at, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         account.uuid,
@@ -186,6 +197,8 @@ class AccountRepository:
                         account.opencode_workspace_id,
                         self._cipher.encrypt(account.opencode_api_key),
                         account.opencode_user_id,
+                        self._encrypt_auth_state(account.github_auth_state),
+                        self._encrypt_auth_state(account.opencode_auth_state),
                         account.email_provider,
                         account.temp_email,
                         account.status.value,
@@ -367,6 +380,84 @@ class AccountRepository:
             raise AccountNotFoundError("未完成账号记录不存在")
         return account
 
+    def update_pending_auth_states(
+        self,
+        account_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
+    ) -> PendingAccount:
+        """
+        加密更新未完成账号的 GitHub 与 OpenCode 认证状态
+
+        :param account_id (str): 未完成账号稳定 UUID
+        :param github_auth_state (BrowserAuthState): 已验证 GitHub 浏览器认证状态
+        :param opencode_auth_state (BrowserAuthState): 已验证 OpenCode 浏览器认证状态
+
+        :return PendingAccount: 更新后的未完成账号
+
+        :raises AccountNotFoundError: 未完成账号不存在
+        """
+
+        with self._database.connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE pending_accounts
+                SET github_auth_state = ?, opencode_auth_state = ?, updated_at = ?
+                WHERE uuid = ?
+                """,
+                (
+                    self._encrypt_auth_state(github_auth_state),
+                    self._encrypt_auth_state(opencode_auth_state),
+                    _serialize_datetime(utc_now()),
+                    account_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise AccountNotFoundError("未完成账号记录不存在")
+        account = self.get_pending(account_id)
+        if account is None:
+            raise AccountNotFoundError("未完成账号记录不存在")
+        return account
+
+    def update_auth_states(
+        self,
+        account_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
+    ) -> Account:
+        """
+        加密滚动更新完整账号的 GitHub 与 OpenCode 认证状态
+
+        :param account_id (str): 账号稳定 UUID
+        :param github_auth_state (BrowserAuthState): 已验证 GitHub 浏览器认证状态
+        :param opencode_auth_state (BrowserAuthState): 已验证 OpenCode 浏览器认证状态
+
+        :return Account: 更新后的完整账号
+
+        :raises AccountNotFoundError: 账号不存在
+        """
+
+        with self._database.connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE accounts
+                SET github_auth_state = ?, opencode_auth_state = ?, updated_at = ?
+                WHERE uuid = ?
+                """,
+                (
+                    self._encrypt_auth_state(github_auth_state),
+                    self._encrypt_auth_state(opencode_auth_state),
+                    _serialize_datetime(utc_now()),
+                    account_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise AccountNotFoundError("账号记录不存在")
+        account = self.get(account_id)
+        if account is None:
+            raise AccountNotFoundError("账号记录不存在")
+        return account
+
     def update_quota(
         self,
         account_id: str,
@@ -374,6 +465,8 @@ class AccountRepository:
         quota_used: int,
         quota_updated_at: datetime,
         status: AccountStatus,
+        github_auth_state: Optional[BrowserAuthState] = None,
+        opencode_auth_state: Optional[BrowserAuthState] = None,
     ) -> Account:
         """
         原子更新账号额度快照与派生状态
@@ -383,6 +476,8 @@ class AccountRepository:
         :param quota_used (int): 当前已用额度
         :param quota_updated_at (datetime): 额度快照时间
         :param status (AccountStatus): 与额度结果一致的账号状态
+        :param github_auth_state (BrowserAuthState): 可选滚动 GitHub 认证状态
+        :param opencode_auth_state (BrowserAuthState): 可选滚动 OpenCode 认证状态
 
         :return Account: 更新后的账号记录
 
@@ -395,7 +490,9 @@ class AccountRepository:
                 """
                 UPDATE accounts
                 SET quota_total = ?, quota_used = ?, quota_updated_at = ?, quota_checked_at = ?,
-                    quota_invalid_reason = NULL, status = ?, updated_at = ?
+                    quota_invalid_reason = NULL, status = ?,
+                    github_auth_state = COALESCE(?, github_auth_state),
+                    opencode_auth_state = COALESCE(?, opencode_auth_state), updated_at = ?
                 WHERE uuid = ?
                 """,
                 (
@@ -404,6 +501,8 @@ class AccountRepository:
                     _serialize_datetime(quota_updated_at),
                     _serialize_datetime(quota_updated_at),
                     status.value,
+                    self._encrypt_auth_state(github_auth_state),
+                    self._encrypt_auth_state(opencode_auth_state),
                     _serialize_datetime(now),
                     account_id,
                 ),
@@ -672,10 +771,11 @@ class AccountRepository:
                     INSERT INTO accounts (
                         uuid, github_username, github_email, github_password, github_created_at,
                         opencode_provider_name, opencode_workspace_id, opencode_api_key, opencode_user_id,
+                        github_auth_state, opencode_auth_state,
                         email_provider, temp_email, status, quota_total, quota_used, quota_updated_at,
                         quota_checked_at, quota_invalid_reason, opencode_configured, omo_configured,
                         created_at, updated_at, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     encrypted_values,
                 )
@@ -683,8 +783,9 @@ class AccountRepository:
                     """
                     INSERT INTO pending_accounts (
                         uuid, github_username, github_email, github_password, github_created_at,
+                        github_auth_state, opencode_auth_state,
                         email_provider, temp_email, status, created_at, updated_at, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     encrypted_pending_values,
                 )
@@ -703,6 +804,8 @@ class AccountRepository:
             opencode_workspace_id=row["opencode_workspace_id"],
             opencode_api_key=self._cipher.decrypt(row["opencode_api_key"]),
             opencode_user_id=row["opencode_user_id"],
+            github_auth_state=self._decrypt_auth_state(row["github_auth_state"]),
+            opencode_auth_state=self._decrypt_auth_state(row["opencode_auth_state"]),
             email_provider=row["email_provider"],
             temp_email=row["temp_email"],
             status=AccountStatus(row["status"]),
@@ -745,6 +848,8 @@ class AccountRepository:
             github_email=row["github_email"],
             github_password=self._cipher.decrypt(row["github_password"]),
             github_created_at=_parse_datetime(row["github_created_at"]),
+            github_auth_state=self._decrypt_auth_state(row["github_auth_state"]),
+            opencode_auth_state=self._decrypt_auth_state(row["opencode_auth_state"]),
             email_provider=row["email_provider"],
             temp_email=row["temp_email"],
             status=AccountStatus(row["status"]),
@@ -777,6 +882,8 @@ class AccountRepository:
             account.opencode_workspace_id,
             self._cipher.encrypt(account.opencode_api_key),
             account.opencode_user_id,
+            self._encrypt_auth_state(account.github_auth_state),
+            self._encrypt_auth_state(account.opencode_auth_state),
             account.email_provider,
             account.temp_email,
             account.status.value,
@@ -799,6 +906,8 @@ class AccountRepository:
             account.github_email,
             self._cipher.encrypt(account.github_password),
             _serialize_datetime(account.github_created_at),
+            self._encrypt_auth_state(account.github_auth_state),
+            self._encrypt_auth_state(account.opencode_auth_state),
             account.email_provider,
             account.temp_email,
             account.status.value,
@@ -806,6 +915,45 @@ class AccountRepository:
             _serialize_datetime(account.updated_at),
             account.notes,
         )
+
+    def _encrypt_auth_state(self, state: Optional[BrowserAuthState]) -> Optional[bytes]:
+        if state is None:
+            return None
+        payload = {
+            "format_version": state.format_version,
+            "captured_at": state.captured_at.isoformat(),
+            "cookies": [
+                {
+                    "name": cookie.name,
+                    "value": cookie.value.get_secret_value(),
+                    "domain": cookie.domain,
+                    "path": cookie.path,
+                    "expires": cookie.expires,
+                    "http_only": cookie.http_only,
+                    "secure": cookie.secure,
+                    "same_site": cookie.same_site,
+                }
+                for cookie in state.cookies
+            ],
+            "origins": [
+                {
+                    "origin": origin.origin,
+                    "local_storage": [
+                        {"name": entry.name, "value": entry.value.get_secret_value()} for entry in origin.local_storage
+                    ],
+                }
+                for origin in state.origins
+            ],
+        }
+        return self._cipher.encrypt(SecretStr(json.dumps(payload, ensure_ascii=True, separators=(",", ":"))))
+
+    def _decrypt_auth_state(self, payload: Optional[bytes]) -> Optional[BrowserAuthState]:
+        if payload is None:
+            return None
+        try:
+            return BrowserAuthState.model_validate_json(self._cipher.decrypt(payload).get_secret_value())
+        except ValidationError as error:
+            raise ValueError("保存的浏览器认证状态无效") from error
 
 
 def _serialize_datetime(value: datetime) -> str:

@@ -8,7 +8,7 @@ from browser.base import OpenCodeQuotaBrowserClient
 from browser.models import OpenCodeQuotaPageResult, OpenCodeQuotaPageStatus
 from engine.quota_service import QuotaCheckService
 from main import create_app
-from storage.models import AccountCreate
+from storage.models import AccountCreate, BrowserAuthState
 from storage.service import AccountVaultService
 
 
@@ -27,6 +27,8 @@ def _vault(tmp_path: Path, *, unlock: bool = True) -> AccountVaultService:
             opencode_provider_name="opencode-go",
             opencode_workspace_id="wrk_quotaapi",
             opencode_api_key=SecretStr("sk-" + "z" * 64),
+            github_auth_state=BrowserAuthState(),
+            opencode_auth_state=BrowserAuthState(),
             email_provider="temp_mail",
             temp_email="quota-api@example.test",
         )
@@ -42,22 +44,25 @@ class FakeQuotaBrowserClient(OpenCodeQuotaBrowserClient):
     async def start_check(
         self,
         github_username: str,
-        github_password: SecretStr,
         workspace_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
     ) -> OpenCodeQuotaPageResult:
         """
         返回固定的仪表盘额度结果
 
         :param github_username (str): 测试 GitHub 用户名
-        :param github_password (SecretStr): 测试 GitHub 密码
         :param workspace_id (str): 测试 workspace 标识
+        :param github_auth_state (BrowserAuthState): 测试 GitHub 认证状态
+        :param opencode_auth_state (BrowserAuthState): 测试 OpenCode 认证状态
 
         :return OpenCodeQuotaPageResult: 固定额度结果
         """
 
         assert github_username
-        assert github_password.get_secret_value()
         assert workspace_id
+        assert github_auth_state is not None
+        assert opencode_auth_state is not None
         return OpenCodeQuotaPageResult(status=OpenCodeQuotaPageStatus.UPDATED, usage_percent=64)
 
     async def close(self) -> None:

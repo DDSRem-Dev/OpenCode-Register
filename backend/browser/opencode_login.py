@@ -1,7 +1,7 @@
 import asyncio
 import re
 from time import monotonic
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from playwright.async_api import Error as BrowserError
@@ -12,11 +12,14 @@ from browser.base import OpenCodeAutomationClient
 from browser.cloakbrowser_client import CloakBrowserSession
 from browser.models import OpenCodePageResult, OpenCodePageStatus
 from engine.models import ManualInterventionReason
+from storage.models import BrowserAuthState
 
 OPENCODE_AUTH_URL = "https://opencode.ai/auth"
 OPENCODE_HOST = "opencode.ai"
 OPENCODE_AUTH_HOST = "auth.opencode.ai"
 GITHUB_HOST = "github.com"
+GITHUB_AUTH_HOSTS = {GITHUB_HOST}
+OPENCODE_AUTH_HOSTS = {OPENCODE_HOST, OPENCODE_AUTH_HOST}
 GITHUB_PROVIDER_SELECTOR = 'a[href="/github/authorize"]'
 GITHUB_OAUTH_PATH = "/login/oauth/authorize"
 AUTHORIZE_BUTTON_NAME = "Authorize"
@@ -114,10 +117,13 @@ class OpenCodeLogin(OpenCodeAutomationClient):
             return self._api_key_input()
         if not isinstance(clipboard_value, str) or API_KEY_PATTERN.fullmatch(clipboard_value) is None:
             return self._api_key_input()
+        github_auth_state, opencode_auth_state = await self._capture_auth_states()
         return OpenCodePageResult(
             status=OpenCodePageStatus.COMPLETED,
             workspace_id=workspace_id,
             api_key=SecretStr(clipboard_value),
+            github_auth_state=github_auth_state,
+            opencode_auth_state=opencode_auth_state,
         )
 
     async def submit_api_key(self, api_key: str) -> OpenCodePageResult:
@@ -133,10 +139,13 @@ class OpenCodeLogin(OpenCodeAutomationClient):
             return self._error("opencode_api_key_invalid", "OpenCode API Key 格式无效")
         if self._workspace_id is None:
             return self._error("opencode_workspace_missing", "OpenCode 工作区标识不可用")
+        github_auth_state, opencode_auth_state = await self._capture_auth_states()
         return OpenCodePageResult(
             status=OpenCodePageStatus.COMPLETED,
             workspace_id=self._workspace_id,
             api_key=SecretStr(api_key),
+            github_auth_state=github_auth_state,
+            opencode_auth_state=opencode_auth_state,
         )
 
     async def _wait_for_workspace(self, page: Page) -> OpenCodePageResult:
@@ -166,11 +175,19 @@ class OpenCodeLogin(OpenCodeAutomationClient):
             return self._error("opencode_go_navigation_failed", "无法打开 OpenCode Go 页面")
         if not self._is_opencode_page(page):
             return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
+        github_auth_state, opencode_auth_state = await self._capture_auth_states()
         return OpenCodePageResult(
             status=OpenCodePageStatus.PAYMENT_REQUIRED,
             workspace_id=workspace_id,
             manual_reason=ManualInterventionReason.PAYMENT,
+            github_auth_state=github_auth_state,
+            opencode_auth_state=opencode_auth_state,
         )
+
+    async def _capture_auth_states(self) -> Tuple[BrowserAuthState, BrowserAuthState]:
+        github_auth_state = await self._browser_session.capture_auth_state(GITHUB_AUTH_HOSTS)
+        opencode_auth_state = await self._browser_session.capture_auth_state(OPENCODE_AUTH_HOSTS)
+        return github_auth_state, opencode_auth_state
 
     @staticmethod
     def _workspace_from_url(url: str) -> Optional[str]:

@@ -9,6 +9,7 @@ from browser.models import (
     OpenCodePageResult,
     OpenCodeQuotaPageResult,
 )
+from storage.models import BrowserAuthState
 
 
 class GitHubRegistrationClient(ABC):
@@ -121,12 +122,18 @@ class GitHubCleanupClient(ABC):
     """
 
     @abstractmethod
-    async def start_cleanup(self, username: str, password: SecretStr) -> GitHubCleanupPageResult:
+    async def start_cleanup(
+        self,
+        username: str,
+        password: SecretStr,
+        github_auth_state: BrowserAuthState,
+    ) -> GitHubCleanupPageResult:
         """
         登录目标 GitHub 账号并提交已确认目标的删除流程
 
         :param username (str): 待删除 GitHub 用户名
         :param password (SecretStr): 待删除 GitHub 账号密码
+        :param github_auth_state (BrowserAuthState): 已保存 GitHub 浏览器认证状态
 
         :return GitHubCleanupPageResult: 当前页面状态
         """
@@ -159,15 +166,17 @@ class OpenCodeQuotaBrowserClient(ABC):
     async def start_check(
         self,
         github_username: str,
-        github_password: SecretStr,
         workspace_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
     ) -> OpenCodeQuotaPageResult:
         """
         登录目标账号并检查 OpenCode Go 仪表盘额度
 
         :param github_username (str): 待检查账号的 GitHub 用户名
-        :param github_password (SecretStr): 待检查账号的 GitHub 密码
         :param workspace_id (str): 待检查账号的 OpenCode workspace 标识
+        :param github_auth_state (BrowserAuthState): 已加密保存的 GitHub 认证状态
+        :param opencode_auth_state (BrowserAuthState): 已加密保存的 OpenCode 认证状态
 
         :return OpenCodeQuotaPageResult: 当前仪表盘额度检查结果
         """

@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import httpx
 import pytest
@@ -17,7 +17,14 @@ from engine.cleanup_models import AccountCleanupStatus
 from engine.cleanup_service import AccountCleanupService, CleanupIdentityMismatchError
 from engine.models import ManualInterventionReason
 from main import create_app
-from storage.models import AccountCleanupState, AccountCreate, PendingAccountCreate
+from storage.models import (
+    AccountCleanupState,
+    AccountCreate,
+    AccountStatus,
+    BrowserAuthState,
+    BrowserCookieState,
+    PendingAccountCreate,
+)
 from storage.service import AccountVaultService
 
 
@@ -36,19 +43,27 @@ class FakeGitHubCleanupClient(GitHubCleanupClient):
         self._results = results
         self.start_calls = 0
         self.closed = False
+        self.received_auth_state: Optional[BrowserAuthState] = None
 
-    async def start_cleanup(self, username: str, password: SecretStr) -> GitHubCleanupPageResult:
+    async def start_cleanup(
+        self,
+        username: str,
+        password: SecretStr,
+        github_auth_state: BrowserAuthState,
+    ) -> GitHubCleanupPageResult:
         """
         返回首次浏览器清理结果
 
         :param username (str): 测试 GitHub 用户名
         :param password (SecretStr): 测试 GitHub 密码
+        :param github_auth_state (BrowserAuthState): 测试 GitHub 认证状态
 
         :return GitHubCleanupPageResult: 预设结果
         """
 
         assert username
         assert password.get_secret_value()
+        self.received_auth_state = github_auth_state
         self.start_calls += 1
         return self._results.pop(0)
 
@@ -71,6 +86,23 @@ class FakeGitHubCleanupClient(GitHubCleanupClient):
         self.closed = True
 
 
+def _github_auth_state(username: str) -> BrowserAuthState:
+    return BrowserAuthState(
+        cookies=[
+            BrowserCookieState(
+                name="user_session",
+                value=SecretStr(f"fake-{username}-cookie"),
+                domain=".github.com",
+                path="/",
+                expires=2_000_000_000,
+                http_only=True,
+                secure=True,
+                same_site="Lax",
+            )
+        ]
+    )
+
+
 def _vault(tmp_path: Path) -> AccountVaultService:
     vault = AccountVaultService(tmp_path / "accounts.db")
     password = SecretStr("account cleanup master password")
@@ -81,6 +113,7 @@ def _vault(tmp_path: Path) -> AccountVaultService:
             github_username="cleanup-primary-user",
             github_email="cleanup-primary@example.test",
             github_password=SecretStr("Fake-Cleanup-Primary-Password!"),
+            github_auth_state=_github_auth_state("cleanup-primary-user"),
             opencode_provider_name="opencode-go",
             opencode_workspace_id="wrk_cleanupprimary",
             opencode_api_key=SecretStr("sk-" + "p" * 64),
@@ -94,6 +127,7 @@ def _vault(tmp_path: Path) -> AccountVaultService:
             github_username="cleanup-secondary-user",
             github_email="cleanup-secondary@example.test",
             github_password=SecretStr("Fake-Cleanup-Secondary-Password!"),
+            github_auth_state=_github_auth_state("cleanup-secondary-user"),
             opencode_provider_name="opencode-go2",
             opencode_workspace_id="wrk_cleanupsecondary",
             opencode_api_key=SecretStr("sk-" + "s" * 64),
@@ -158,6 +192,7 @@ async def test_cleanup_automates_remote_delete_then_promotes_secondary(tmp_path:
 
     assert completed.status == AccountCleanupStatus.DONE
     assert completed.promoted_account_id == "cleanup-secondary"
+    assert client.received_auth_state is not None
     assert [account.opencode_provider_name for account in vault.list_accounts()] == ["opencode-go"]
     assert "Fake-Cleanup" not in completed.model_dump_json()
     assert "sk-" not in completed.model_dump_json()
@@ -177,6 +212,7 @@ async def test_cleanup_deletes_pending_account_without_touching_pool_config(tmp_
             github_username="pending-cleanup-user",
             github_email="pending-cleanup@example.test",
             github_password=SecretStr("Fake-Pending-Cleanup-Password!"),
+            github_auth_state=_github_auth_state("pending-cleanup-user"),
             email_provider="temp_mail",
             temp_email="pending-cleanup@example.test",
         )
@@ -293,6 +329,45 @@ async def test_cleanup_rejects_unconfirmed_identity_before_persisting_intent(tmp
 
     assert vault.cleanup_state("cleanup-primary") is None
     assert client.start_calls == 0
+
+
+@pytest.mark.anyio
+async def test_cleanup_without_saved_session_requires_reauthorization_without_browser(tmp_path: Path) -> None:
+    """
+    验证历史账号缺少 GitHub 会话时不启动浏览器且不改账号状态
+    """
+
+    vault = AccountVaultService(tmp_path / "legacy.db")
+    password = SecretStr("legacy cleanup master password")
+    vault.unlock(password, password)
+    account = vault.add_account(
+        AccountCreate(
+            uuid="legacy-cleanup",
+            github_username="legacy-cleanup-user",
+            github_email="legacy-cleanup@example.test",
+            github_password=SecretStr("Fake-Legacy-Cleanup-Password!"),
+            opencode_provider_name="opencode-go",
+            opencode_workspace_id="wrk_legacycleanup",
+            opencode_api_key=SecretStr("sk-" + "l" * 64),
+            email_provider="temp_mail",
+            temp_email="legacy-cleanup@example.test",
+        )
+    )
+    pool, http_client = _pool(tmp_path)
+    client = FakeGitHubCleanupClient([])
+    service = AccountCleanupService(vault, pool, lambda: client)
+    try:
+        result = await service.start(account.uuid, account.github_username)
+    finally:
+        await service.close()
+        await http_client.aclose()
+
+    stored = vault.get_account(account.uuid)
+    assert result.status == AccountCleanupStatus.ERROR
+    assert result.error_code == "github_cleanup_auth_required"
+    assert client.start_calls == 0
+    assert stored is not None
+    assert stored.status == AccountStatus.ACTIVE
 
 
 @pytest.mark.anyio

@@ -13,7 +13,7 @@ from engine.models import AccountCompletionData, FlowSession, FlowStatus, Pendin
 from providers.base import EmailProvider
 from providers.integrations.temp_mail import TempMailProvider
 from providers.models import TempMailProviderSettings
-from storage.models import AccountStatus
+from storage.models import AccountStatus, BrowserAuthState
 from storage.screenshots import ScreenshotStore
 
 
@@ -44,6 +44,7 @@ class CreateAccountService:
         provider_factory: Optional[Callable[[], EmailProvider]] = None,
         pending_handler: Optional[Callable[[PendingAccountData], Awaitable[str]]] = None,
         pending_status_handler: Optional[Callable[[str, AccountStatus], Awaitable[None]]] = None,
+        auth_state_handler: Optional[Callable[[str, BrowserAuthState, BrowserAuthState], Awaitable[None]]] = None,
         screenshot_store: Optional[ScreenshotStore] = None,
         browser_initializer: Optional[BrowserInitializer] = None,
     ) -> None:
@@ -56,6 +57,7 @@ class CreateAccountService:
         :param provider_factory (Callable): 可选的临时邮箱 provider 构造函数
         :param pending_handler (Callable): GitHub 注册完成后的持久化边界
         :param pending_status_handler (Callable): 未完成账号状态更新边界
+        :param auth_state_handler (Callable): 未完成账号认证状态更新边界
         :param screenshot_store (ScreenshotStore): 可选的已遮罩截图存储
         :param browser_initializer (BrowserInitializer): 可选的共享浏览器初始化管理器
         """
@@ -63,6 +65,7 @@ class CreateAccountService:
         self._completion_handler = completion_handler
         self._pending_handler = pending_handler
         self._pending_status_handler = pending_status_handler
+        self._auth_state_handler = auth_state_handler
         self._screenshot_store = screenshot_store
         self._flows: Dict[str, CreateAccountFlow] = {}
         self._tasks: Dict[str, asyncio.Task[None]] = {}
@@ -102,6 +105,7 @@ class CreateAccountService:
             self._pending_handler,
             self._pending_status_handler,
             self._screenshot_store,
+            self._auth_state_handler,
         )
         snapshot = flow.snapshot()
         self._flows[snapshot.flow_id] = flow

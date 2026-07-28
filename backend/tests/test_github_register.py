@@ -412,18 +412,25 @@ class FakeBrowser:
         """
 
         self.viewport: Optional[Dict[str, int]] = None
+        self.storage_state: Optional[Dict[str, object]] = None
         self.context = FakeBrowserContext()
 
-    async def new_context(self, viewport: Optional[Dict[str, int]] = None) -> BrowserContext:
+    async def new_context(
+        self,
+        viewport: Optional[Dict[str, int]] = None,
+        storage_state: Optional[Dict[str, object]] = None,
+    ) -> BrowserContext:
         """
         记录会话创建使用的 viewport
 
         :param viewport (Dict): 浏览器页面尺寸
+        :param storage_state (Dict): 待恢复浏览器认证状态
 
         :return BrowserContext: 隔离上下文测试替身
         """
 
         self.viewport = viewport
+        self.storage_state = storage_state
         return cast(BrowserContext, self.context)
 
     async def close(self) -> None:

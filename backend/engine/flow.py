@@ -27,7 +27,7 @@ from engine.models import (
 from engine.steps import CreateEmailStep
 from providers.base import EmailProvider
 from providers.errors import EmailProviderError
-from storage.models import AccountStatus
+from storage.models import AccountStatus, BrowserAuthState
 from storage.screenshots import ScreenshotStore, ScreenshotStoreError
 
 USERNAME_PREFIXES = (
@@ -133,6 +133,7 @@ class CreateAccountFlow:
         pending_handler: Optional[Callable[[PendingAccountData], Awaitable[str]]] = None,
         pending_status_handler: Optional[Callable[[str, AccountStatus], Awaitable[None]]] = None,
         screenshot_store: Optional[ScreenshotStore] = None,
+        auth_state_handler: Optional[Callable[[str, BrowserAuthState, BrowserAuthState], Awaitable[None]]] = None,
     ) -> None:
         """
         初始化账号创建流程
@@ -145,6 +146,7 @@ class CreateAccountFlow:
         :param pending_handler (Callable): GitHub 注册完成后的加密持久化边界
         :param pending_status_handler (Callable): 未完成账号状态更新边界
         :param screenshot_store (ScreenshotStore): 可选的已遮罩截图存储
+        :param auth_state_handler (Callable): 未完成账号认证状态更新边界
         """
 
         self._create_email_step = CreateEmailStep(providers)
@@ -154,10 +156,13 @@ class CreateAccountFlow:
         self._state_listener = state_listener
         self._pending_handler = pending_handler
         self._pending_status_handler = pending_status_handler
+        self._auth_state_handler = auth_state_handler
         self._screenshot_store = screenshot_store
         self._session = FlowSession()
         self._github_password: Optional[str] = self._generate_password()
         self._opencode_api_key: Optional[SecretStr] = None
+        self._github_auth_state: Optional[BrowserAuthState] = None
+        self._opencode_auth_state: Optional[BrowserAuthState] = None
         self._session.github_username = self._generate_username()
         self._paused_from: Optional[FlowStatus] = None
         self._is_waiting_for_email_code = False
@@ -302,6 +307,8 @@ class CreateAccountFlow:
         await self._mark_pending_status(AccountStatus.CANCELLED)
         self._github_password = None
         self._opencode_api_key = None
+        self._github_auth_state = None
+        self._opencode_auth_state = None
         self._transition(FlowStatus.CANCELLED)
         if email is not None:
             await self._dispose_email(email)
@@ -350,6 +357,8 @@ class CreateAccountFlow:
             await provider.dispose(email)
 
     async def _handle_github_result(self, page_result: GitHubPageResult) -> FlowStepResult:
+        if page_result.github_auth_state is not None:
+            self._github_auth_state = page_result.github_auth_state
         if page_result.status == GitHubPageStatus.MANUAL_REQUIRED:
             self._session.pause_requested = False
             self._paused_from = self._session.status
@@ -400,13 +409,11 @@ class CreateAccountFlow:
         return await self._handle_github_result(page_result)
 
     async def _handle_opencode_result(self, page_result: OpenCodePageResult) -> FlowStepResult:
+        self._remember_auth_states(page_result)
         if page_result.workspace_id is not None:
             self._session.opencode_workspace_id = page_result.workspace_id
         if page_result.status == OpenCodePageStatus.PAYMENT_REQUIRED:
-            await self._mark_pending_status(AccountStatus.PENDING_PAYMENT)
-            self._session.manual_intervention = create_flow_manual_intervention(ManualInterventionReason.PAYMENT)
-            self._transition(FlowStatus.PENDING_PAYMENT)
-            return self._result(FlowStepStatus.NEED_MANUAL)
+            return await self._handle_payment_required()
         if page_result.status in {
             OpenCodePageStatus.MANUAL_REQUIRED,
             OpenCodePageStatus.API_KEY_INPUT_REQUIRED,
@@ -452,6 +459,22 @@ class CreateAccountFlow:
             page_result.error_message or "OpenCode Go 流程失败",
         )
 
+    def _remember_auth_states(self, page_result: OpenCodePageResult) -> None:
+        if page_result.github_auth_state is not None:
+            self._github_auth_state = page_result.github_auth_state
+        if page_result.opencode_auth_state is not None:
+            self._opencode_auth_state = page_result.opencode_auth_state
+
+    async def _handle_payment_required(self) -> FlowStepResult:
+        try:
+            await self._persist_auth_states()
+        except AccountCompletionError as error:
+            return await self._fail_and_cleanup("auth_state_persistence_failed", str(error))
+        await self._mark_pending_status(AccountStatus.PENDING_PAYMENT)
+        self._session.manual_intervention = create_flow_manual_intervention(ManualInterventionReason.PAYMENT)
+        self._transition(FlowStatus.PENDING_PAYMENT)
+        return self._result(FlowStepStatus.NEED_MANUAL)
+
     def _completion_data(self) -> Optional[AccountCompletionData]:
         session = self._session
         if (
@@ -470,6 +493,8 @@ class CreateAccountFlow:
             github_password=SecretStr(self._github_password),
             opencode_workspace_id=session.opencode_workspace_id,
             opencode_api_key=self._opencode_api_key,
+            github_auth_state=self._github_auth_state,
+            opencode_auth_state=self._opencode_auth_state,
             email_provider=session.email_provider,
             temp_email=session.temp_email,
         )
@@ -487,6 +512,7 @@ class CreateAccountFlow:
             github_username=session.github_username,
             github_email=session.temp_email,
             github_password=SecretStr(self._github_password),
+            github_auth_state=self._github_auth_state,
             email_provider=session.email_provider,
             temp_email=session.temp_email,
         )
@@ -499,6 +525,19 @@ class CreateAccountFlow:
             await self._pending_status_handler(account_id, status)
         except AccountCompletionError:
             return
+
+    async def _persist_auth_states(self) -> None:
+        account_id = self._session.account_id
+        github_auth_state = self._github_auth_state
+        opencode_auth_state = self._opencode_auth_state
+        if (
+            account_id is None
+            or github_auth_state is None
+            or opencode_auth_state is None
+            or self._auth_state_handler is None
+        ):
+            return
+        await self._auth_state_handler(account_id, github_auth_state, opencode_auth_state)
 
     async def _capture_manual_screenshot(self) -> None:
         store = self._screenshot_store
@@ -533,6 +572,8 @@ class CreateAccountFlow:
         self._session.opencode_provider_name = provider_name
         self._github_password = None
         self._opencode_api_key = None
+        self._github_auth_state = None
+        self._opencode_auth_state = None
         self._transition(FlowStatus.DONE)
         if self._session.temp_email is not None:
             await self._dispose_email(self._session.temp_email)
@@ -544,6 +585,8 @@ class CreateAccountFlow:
         await self._mark_pending_status(AccountStatus.PENDING_SETUP)
         self._github_password = None
         self._opencode_api_key = None
+        self._github_auth_state = None
+        self._opencode_auth_state = None
         result = self._fail(error_code, error_message)
         if self._session.temp_email is not None:
             await self._dispose_email(self._session.temp_email)

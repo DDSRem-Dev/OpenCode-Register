@@ -1,4 +1,4 @@
-from typing import Dict, Optional, cast
+from typing import Dict, List, Optional, cast
 
 import pytest
 from playwright.async_api import Page
@@ -15,10 +15,9 @@ from browser.github_cleanup import (
     DELETE_USERNAME_LABEL,
     GITHUB_ADMIN_PATH,
     GITHUB_ADMIN_URL,
+    GITHUB_HOME_URL,
     GITHUB_LOGIN_PATH,
     LOGIN_ERROR_SELECTOR,
-    LOGIN_USERNAME_SELECTOR,
-    PASSWORD_SELECTOR,
     SUDO_CONFIRM_BUTTON_SELECTOR,
     SUDO_INPUT_SETTLE_MILLISECONDS,
     SUDO_PASSWORD_SELECTOR,
@@ -27,6 +26,30 @@ from browser.github_cleanup import (
 )
 from browser.models import GitHubCleanupPageStatus
 from engine.models import ManualInterventionReason
+from storage.models import BrowserAuthState, BrowserCookieState
+
+
+def fake_github_auth_state() -> BrowserAuthState:
+    """
+    创建 GitHub 清理测试认证状态
+
+    :return BrowserAuthState: 带虚构 Cookie 的认证状态
+    """
+
+    return BrowserAuthState(
+        cookies=[
+            BrowserCookieState(
+                name="user_session",
+                value=SecretStr("fake-cleanup-github-cookie"),
+                domain=".github.com",
+                path="/",
+                expires=2_000_000_000,
+                http_only=True,
+                secure=True,
+                same_site="Lax",
+            )
+        ]
+    )
 
 
 class FakeLocator:
@@ -176,13 +199,6 @@ class FakeButton:
         """
 
         assert timeout == 15_000
-        if self._name == "Sign in":
-            if self._page.login_invalid or self._page.has_captcha:
-                return
-            self._page.url = "https://github.com/"
-            self._page.actor_login = self._page.authenticated_as or self._page.filled.get(LOGIN_USERNAME_SELECTOR)
-            self._page.expected_username = self._page.filled.get(LOGIN_USERNAME_SELECTOR, "")
-            return
         if self._name == DELETE_ACCOUNT_BUTTON_NAME:
             self._page.delete_dialog_open = True
             return
@@ -274,7 +290,7 @@ class FakeCleanupPage:
         self.has_captcha = has_captcha
         self.delete_button_count = delete_button_count
         self.delete_dialog_open = False
-        self.expected_username = ""
+        self.expected_username = authenticated_as or ""
         self.profile_status = profile_status
         self.sudo_controls_ready = False
         self.sudo_wait_milliseconds = 0
@@ -295,6 +311,8 @@ class FakeCleanupPage:
         assert wait_until == "domcontentloaded"
         assert timeout == 30_000
         self.url = url
+        if url == GITHUB_HOME_URL:
+            self.actor_login = None if self.login_invalid else self.authenticated_as
         if url == GITHUB_ADMIN_URL and self.actor_login is not None:
             self.url = f"https://github.com{GITHUB_ADMIN_PATH}"
 
@@ -347,7 +365,6 @@ class FakeCleanupPage:
 
         assert role == "button"
         assert name in {
-            "Sign in",
             DELETE_ACCOUNT_BUTTON_NAME,
             DELETE_SUBMIT_BUTTON_NAME,
         }
@@ -369,6 +386,18 @@ class FakeCleanupSession(CloakBrowserSession):
 
         self._fake_page = page
         self.closed = False
+        self.restored_auth_states: Optional[List[BrowserAuthState]] = None
+
+    def restore_auth_states(self, auth_states: List[BrowserAuthState]) -> None:
+        """
+        记录清理流程恢复的认证状态
+
+        :param auth_states (List): GitHub 认证状态列表
+
+        :return None: 无返回值
+        """
+
+        self.restored_auth_states = auth_states
 
     async def page(self) -> Page:
         """
@@ -396,12 +425,18 @@ async def test_github_cleanup_verifies_identity_and_submits_confirmed_deletion()
     """
 
     page = FakeCleanupPage(authenticated_as="cleanup-user")
-    cleanup = GitHubAccountCleanup(FakeCleanupSession(page))
+    session = FakeCleanupSession(page)
+    cleanup = GitHubAccountCleanup(session)
 
-    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup(
+        "cleanup-user",
+        SecretStr("Fake-GitHub-Password!"),
+        fake_github_auth_state(),
+    )
 
     assert result.status == GitHubCleanupPageStatus.DELETED
-    assert page.filled[PASSWORD_SELECTOR] == "Fake-GitHub-Password!"
+    assert session.restored_auth_states is not None
+    assert session.restored_auth_states[0].cookies[0].domain == ".github.com"
     assert page.filled[DELETE_USERNAME_LABEL] == "cleanup-user"
     assert page.filled[DELETE_CONFIRMATION_LABEL] == DELETE_CONFIRMATION_TEXT
     assert page.filled[SUDO_PASSWORD_SELECTOR] == "Fake-GitHub-Password!"
@@ -416,10 +451,34 @@ async def test_github_cleanup_rejects_mismatched_identity() -> None:
 
     cleanup = GitHubAccountCleanup(FakeCleanupSession(FakeCleanupPage(authenticated_as="other-user")))
 
-    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup(
+        "cleanup-user",
+        SecretStr("Fake-GitHub-Password!"),
+        fake_github_auth_state(),
+    )
 
     assert result.status == GitHubCleanupPageStatus.ERROR
     assert result.error_code == "github_cleanup_identity_mismatch"
+
+
+@pytest.mark.anyio
+async def test_github_cleanup_requires_reauthorization_for_expired_session() -> None:
+    """
+    验证已失效 Cookie 不会回退到密码登录
+    """
+
+    page = FakeCleanupPage(authenticated_as="cleanup-user", login_invalid=True)
+    cleanup = GitHubAccountCleanup(FakeCleanupSession(page))
+
+    result = await cleanup.start_cleanup(
+        "cleanup-user",
+        SecretStr("Fake-GitHub-Password!"),
+        fake_github_auth_state(),
+    )
+
+    assert result.status == GitHubCleanupPageStatus.AUTH_REQUIRED
+    assert result.error_code == "github_cleanup_auth_required"
+    assert page.filled == {}
 
 
 @pytest.mark.anyio
@@ -430,7 +489,11 @@ async def test_github_cleanup_preserves_manual_captcha_boundary() -> None:
 
     cleanup = GitHubAccountCleanup(FakeCleanupSession(FakeCleanupPage(has_captcha=True)))
 
-    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup(
+        "cleanup-user",
+        SecretStr("Fake-GitHub-Password!"),
+        fake_github_auth_state(),
+    )
 
     assert result.status == GitHubCleanupPageStatus.MANUAL_REQUIRED
     assert result.manual_reason == ManualInterventionReason.CAPTCHA
@@ -445,7 +508,11 @@ async def test_github_cleanup_pauses_when_delete_control_is_not_unique() -> None
     page = FakeCleanupPage(authenticated_as="cleanup-user", delete_button_count=2)
     cleanup = GitHubAccountCleanup(FakeCleanupSession(page))
 
-    result = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
+    result = await cleanup.start_cleanup(
+        "cleanup-user",
+        SecretStr("Fake-GitHub-Password!"),
+        fake_github_auth_state(),
+    )
 
     assert result.status == GitHubCleanupPageStatus.MANUAL_REQUIRED
     assert result.manual_reason == ManualInterventionReason.UNKNOWN_BLOCK
@@ -461,7 +528,11 @@ async def test_github_cleanup_only_accepts_profile_not_found_as_deleted() -> Non
     page = FakeCleanupPage(authenticated_as="cleanup-user", sudo_invalid=True)
     session = FakeCleanupSession(page)
     cleanup = GitHubAccountCleanup(session)
-    manual = await cleanup.start_cleanup("cleanup-user", SecretStr("Fake-GitHub-Password!"))
+    manual = await cleanup.start_cleanup(
+        "cleanup-user",
+        SecretStr("Fake-GitHub-Password!"),
+        fake_github_auth_state(),
+    )
     assert manual.status == GitHubCleanupPageStatus.INVALID
 
     page.actor_login = None

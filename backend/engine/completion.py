@@ -16,6 +16,7 @@ from storage.models import (
     AccountRecord,
     AccountStatus,
     AutomaticConfigurationSettings,
+    BrowserAuthState,
     PendingAccountCreate,
 )
 from storage.repositories import AccountAlreadyExistsError, AccountNotFoundError
@@ -97,6 +98,7 @@ class AccountCompletionService:
                     github_username=data.github_username,
                     github_email=data.github_email,
                     github_password=data.github_password,
+                    github_auth_state=data.github_auth_state,
                     email_provider=data.email_provider,
                     temp_email=data.temp_email,
                 ),
@@ -104,6 +106,34 @@ class AccountCompletionService:
         except (AccountAlreadyExistsError, VaultLockedError, RuntimeError) as error:
             raise AccountCompletionError("GitHub 账号凭据持久化失败") from error
         return account.uuid
+
+    async def update_pending_auth_states(
+        self,
+        account_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
+    ) -> None:
+        """
+        加密保存首次 GitHub 与 OpenCode 登录认证状态
+
+        :param account_id (str): 未完成账号稳定 UUID
+        :param github_auth_state (BrowserAuthState): GitHub 浏览器认证状态
+        :param opencode_auth_state (BrowserAuthState): OpenCode 浏览器认证状态
+
+        :return None: 无返回值
+
+        :raises AccountCompletionError: 认证状态无法持久化
+        """
+
+        try:
+            await asyncio.to_thread(
+                self._vault_service.update_pending_auth_states,
+                account_id,
+                github_auth_state,
+                opencode_auth_state,
+            )
+        except (AccountNotFoundError, VaultLockedError, ValueError) as error:
+            raise AccountCompletionError("浏览器认证状态持久化失败") from error
 
     async def mark_pending_status(self, account_id: str, status: AccountStatus) -> None:
         """
@@ -402,6 +432,8 @@ def _account_create(
         opencode_provider_name=provider_name,
         opencode_workspace_id=data.opencode_workspace_id,
         opencode_api_key=data.opencode_api_key,
+        github_auth_state=data.github_auth_state,
+        opencode_auth_state=data.opencode_auth_state,
         email_provider=data.email_provider,
         temp_email=data.temp_email,
         opencode_configured=opencode_configured,

@@ -16,6 +16,7 @@ from engine.models import ManualInterventionReason
 
 GITHUB_SIGNUP_URL = "https://github.com/signup"
 GITHUB_HOST = "github.com"
+GITHUB_AUTH_HOSTS = {GITHUB_HOST}
 GITHUB_LOGIN_PATH = "/login"
 EMAIL_SELECTOR = "#email"
 PASSWORD_SELECTOR = "#password"
@@ -220,7 +221,10 @@ class GitHubRegister(GitHubRegistrationClient):
         if PHONE_TEXT_PATTERN.search(body_text) is not None:
             return self._manual(ManualInterventionReason.PHONE_VERIFICATION)
         if urlparse(page.url).path in COMPLETED_PATHS:
-            return GitHubPageResult(status=GitHubPageStatus.COMPLETED)
+            return GitHubPageResult(
+                status=GitHubPageStatus.COMPLETED,
+                github_auth_state=await self._browser_session.capture_auth_state(GITHUB_AUTH_HOSTS),
+            )
         return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
 
     async def _username_is_unavailable(self, page: Page) -> bool:

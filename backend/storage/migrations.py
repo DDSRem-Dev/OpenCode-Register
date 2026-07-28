@@ -116,4 +116,13 @@ MIGRATIONS: Final[List[Migration]] = [
             CHECK (omo_configured IN (0, 1));
         """,
     ),
+    (
+        6,
+        """
+        ALTER TABLE accounts ADD COLUMN github_auth_state BLOB;
+        ALTER TABLE accounts ADD COLUMN opencode_auth_state BLOB;
+        ALTER TABLE pending_accounts ADD COLUMN github_auth_state BLOB;
+        ALTER TABLE pending_accounts ADD COLUMN opencode_auth_state BLOB;
+        """,
+    ),
 ]

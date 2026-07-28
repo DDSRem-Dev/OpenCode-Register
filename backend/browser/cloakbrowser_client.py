@@ -1,8 +1,18 @@
 import asyncio
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple, cast
+from urllib.parse import urlparse
 
 from cloakbrowser import launch_async  # type: ignore[import-untyped]
+from playwright._impl._api_structures import StorageState
 from playwright.async_api import Browser, BrowserContext, Page
+from pydantic import SecretStr
+
+from storage.models import (
+    BrowserAuthState,
+    BrowserCookieState,
+    BrowserOriginState,
+    BrowserStorageEntry,
+)
 
 from .initializer import BrowserInitializer
 
@@ -15,14 +25,16 @@ class CloakBrowserSession:
     单个账号流程使用的隔离浏览器会话
     """
 
-    def __init__(self, manager: "CloakBrowserClient") -> None:
+    def __init__(self, manager: "CloakBrowserClient", auth_states: Optional[List[BrowserAuthState]] = None) -> None:
         """
         初始化尚未创建页面的浏览器会话
 
         :param manager (CloakBrowserClient): 共享浏览器生命周期管理器
+        :param auth_states (List): 创建上下文前恢复的浏览器认证状态
         """
 
         self._manager = manager
+        self._auth_states = auth_states or []
         self._context: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
 
@@ -34,8 +46,64 @@ class CloakBrowserSession:
         """
 
         if self._page is None:
-            self._context, self._page = await self._manager._create_page()
+            self._context, self._page = await self._manager._create_page(self._auth_states)
         return self._page
+
+    def restore_auth_states(self, auth_states: List[BrowserAuthState]) -> None:
+        """
+        在上下文创建前设置待恢复的浏览器认证状态
+
+        :param auth_states (List): GitHub 与 OpenCode 浏览器认证状态
+
+        :return None: 无返回值
+
+        :raises RuntimeError: 浏览器上下文已经创建
+        """
+
+        if self._context is not None:
+            raise RuntimeError("浏览器上下文已经创建")
+        self._auth_states = list(auth_states)
+
+    async def capture_auth_state(self, allowed_hosts: Set[str]) -> BrowserAuthState:
+        """
+        捕获并按受信任主机过滤当前上下文认证状态
+
+        :param allowed_hosts (Set): 允许保存 Cookie 与 localStorage 的主机集合
+
+        :return BrowserAuthState: 不会进入日志或接口响应的类型化认证状态
+
+        :raises RuntimeError: 浏览器上下文尚未创建
+        """
+
+        if self._context is None:
+            raise RuntimeError("浏览器上下文尚未创建")
+        storage_state = await self._context.storage_state()
+        cookies = [
+            BrowserCookieState(
+                name=cookie["name"],
+                value=SecretStr(cookie["value"]),
+                domain=cookie["domain"],
+                path=cookie["path"],
+                expires=cookie["expires"],
+                http_only=cookie["httpOnly"],
+                secure=cookie["secure"],
+                same_site=cookie["sameSite"],
+            )
+            for cookie in storage_state["cookies"]
+            if _host_is_allowed(cookie["domain"], allowed_hosts)
+        ]
+        origins = [
+            BrowserOriginState(
+                origin=origin["origin"],
+                local_storage=[
+                    BrowserStorageEntry(name=entry["name"], value=SecretStr(entry["value"]))
+                    for entry in origin["localStorage"]
+                ],
+            )
+            for origin in storage_state["origins"]
+            if _origin_is_allowed(origin["origin"], allowed_hosts)
+        ]
+        return BrowserAuthState(cookies=cookies, origins=origins)
 
     async def close(self) -> None:
         """
@@ -93,14 +161,16 @@ class CloakBrowserClient:
         self._headless = headless
         self._initializer = initializer
 
-    def create_session(self) -> CloakBrowserSession:
+    def create_session(self, auth_states: Optional[List[BrowserAuthState]] = None) -> CloakBrowserSession:
         """
         创建使用独立浏览器上下文的流程会话
+
+        :param auth_states (List): 创建上下文前恢复的浏览器认证状态
 
         :return CloakBrowserSession: 尚未启动页面的隔离会话
         """
 
-        return CloakBrowserSession(self)
+        return CloakBrowserSession(self, auth_states)
 
     async def close(self) -> None:
         """
@@ -117,9 +187,12 @@ class CloakBrowserClient:
                 pass
         self._browser = None
 
-    async def _create_page(self) -> Tuple[BrowserContext, Page]:
+    async def _create_page(self, auth_states: List[BrowserAuthState]) -> Tuple[BrowserContext, Page]:
         browser = await self._ensure_browser()
-        context = await browser.new_context(viewport={"width": 1920, "height": 1080})
+        context = await browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            storage_state=_playwright_storage_state(auth_states),
+        )
         try:
             await context.grant_permissions(
                 OPENCODE_CLIPBOARD_PERMISSIONS,
@@ -138,3 +211,49 @@ class CloakBrowserClient:
                     await self._initializer.wait_until_ready()
                 self._browser = await launch_async(headless=self._headless)
             return self._browser
+
+
+def _host_is_allowed(domain: str, allowed_hosts: Set[str]) -> bool:
+    normalized = domain.lstrip(".").casefold()
+    return any(normalized == host or normalized.endswith(f".{host}") for host in allowed_hosts)
+
+
+def _origin_is_allowed(origin: str, allowed_hosts: Set[str]) -> bool:
+    parsed = urlparse(origin)
+    return parsed.scheme == "https" and parsed.hostname is not None and _host_is_allowed(parsed.hostname, allowed_hosts)
+
+
+def _playwright_storage_state(auth_states: List[BrowserAuthState]) -> StorageState:
+    cookies: Dict[Tuple[str, str, str], Dict[str, object]] = {}
+    origins: Dict[str, Dict[str, SecretStr]] = {}
+    for state in auth_states:
+        for cookie in state.cookies:
+            cookies[(cookie.name, cookie.domain, cookie.path)] = {
+                "name": cookie.name,
+                "value": cookie.value.get_secret_value(),
+                "domain": cookie.domain,
+                "path": cookie.path,
+                "expires": cookie.expires,
+                "httpOnly": cookie.http_only,
+                "secure": cookie.secure,
+                "sameSite": cookie.same_site,
+            }
+        for origin in state.origins:
+            entries = origins.setdefault(origin.origin, {})
+            for entry in origin.local_storage:
+                entries[entry.name] = entry.value
+    return cast(
+        StorageState,
+        {
+            "cookies": list(cookies.values()),
+            "origins": [
+                {
+                    "origin": origin,
+                    "localStorage": [
+                        {"name": name, "value": value.get_secret_value()} for name, value in entries.items()
+                    ],
+                }
+                for origin, entries in origins.items()
+            ],
+        },
+    )

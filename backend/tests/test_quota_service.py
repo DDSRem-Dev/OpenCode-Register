@@ -11,8 +11,15 @@ from engine.models import ManualInterventionReason
 from engine.quota_service import QuotaCheckService
 from scheduler.models import QuotaRefreshResult, QuotaRefreshStatus
 from scheduler.quota_scheduler import QuotaScheduler
-from storage.models import AccountCreate, AccountStatus, QuotaInvalidReason
-from storage.service import AccountVaultService
+from storage.models import (
+    Account,
+    AccountCreate,
+    AccountStatus,
+    BrowserAuthState,
+    BrowserCookieState,
+    QuotaInvalidReason,
+)
+from storage.service import AccountVaultService, VaultLockedError
 
 
 def _vault(tmp_path: Path) -> AccountVaultService:
@@ -28,6 +35,8 @@ def _vault(tmp_path: Path) -> AccountVaultService:
             opencode_provider_name="opencode-go",
             opencode_workspace_id="wrk_quota",
             opencode_api_key=SecretStr("sk-" + "q" * 64),
+            github_auth_state=BrowserAuthState(),
+            opencode_auth_state=BrowserAuthState(),
             email_provider="temp_mail",
             temp_email="quota@example.test",
         )
@@ -40,6 +49,23 @@ def _quota_service(
     browser_client_factory: Optional[Callable[[], OpenCodeQuotaBrowserClient]] = None,
 ) -> QuotaCheckService:
     return QuotaCheckService(vault, browser_client_factory)
+
+
+def _auth_state(name: str, value: str, domain: str) -> BrowserAuthState:
+    return BrowserAuthState(
+        cookies=[
+            BrowserCookieState(
+                name=name,
+                value=SecretStr(value),
+                domain=domain,
+                path="/",
+                expires=2_000_000_000,
+                http_only=True,
+                secure=True,
+                same_site="Lax",
+            )
+        ]
+    )
 
 
 class FakeQuotaBrowserClient(OpenCodeQuotaBrowserClient):
@@ -61,22 +87,25 @@ class FakeQuotaBrowserClient(OpenCodeQuotaBrowserClient):
     async def start_check(
         self,
         github_username: str,
-        github_password: SecretStr,
         workspace_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
     ) -> OpenCodeQuotaPageResult:
         """
         返回首次浏览器额度结果
 
         :param github_username (str): 测试 GitHub 用户名
-        :param github_password (SecretStr): 测试 GitHub 密码
         :param workspace_id (str): 测试 workspace 标识
+        :param github_auth_state (BrowserAuthState): 测试 GitHub 认证状态
+        :param opencode_auth_state (BrowserAuthState): 测试 OpenCode 认证状态
 
         :return OpenCodeQuotaPageResult: 预设浏览器结果
         """
 
         assert github_username
-        assert github_password.get_secret_value()
         assert workspace_id
+        assert github_auth_state is not None
+        assert opencode_auth_state is not None
         self.start_calls += 1
         return self._results.pop(0)
 
@@ -199,6 +228,131 @@ async def test_background_browser_closes_after_success(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_quota_service_does_not_launch_browser_without_saved_auth_state(tmp_path: Path) -> None:
+    """
+    验证历史账号缺少认证状态时直接要求重新授权
+    """
+
+    vault = AccountVaultService(tmp_path / "legacy-quota.db")
+    password = SecretStr("legacy quota master password")
+    vault.unlock(password, password)
+    vault.add_account(
+        AccountCreate(
+            uuid="legacy-quota-account",
+            github_username="legacy-quota-user",
+            github_email="legacy-quota@example.test",
+            github_password=SecretStr("Fake-Legacy-Quota-Password!"),
+            opencode_provider_name="opencode-go",
+            opencode_workspace_id="wrk_legacyquota",
+            opencode_api_key=SecretStr("sk-" + "l" * 64),
+            email_provider="temp_mail",
+            temp_email="legacy-quota@example.test",
+        )
+    )
+    browser_launched = False
+
+    def create_browser() -> OpenCodeQuotaBrowserClient:
+        nonlocal browser_launched
+        browser_launched = True
+        return FakeQuotaBrowserClient([])
+
+    service = _quota_service(vault, create_browser)
+    result = await service.refresh_account("legacy-quota-account")
+
+    assert result.status == QuotaRefreshStatus.UNAVAILABLE
+    assert "重新完成一次登录授权" in result.message
+    assert browser_launched is False
+
+
+@pytest.mark.anyio
+async def test_expired_auth_state_preserves_existing_quota_and_status(tmp_path: Path) -> None:
+    """
+    验证会话过期只要求重新授权且保留可信额度快照
+    """
+
+    vault = _vault(tmp_path)
+    checked_at = vault.list_accounts()[0].created_at
+    vault.update_quota("quota-account", 100, 42, checked_at, AccountStatus.ACTIVE)
+    browser_client = FakeQuotaBrowserClient(
+        [
+            OpenCodeQuotaPageResult(
+                status=OpenCodeQuotaPageStatus.AUTH_REQUIRED,
+                error_message="保存的 OpenCode 登录状态已失效，需要重新授权",
+            )
+        ]
+    )
+    service = _quota_service(vault, lambda: browser_client)
+
+    result = await service.refresh_account("quota-account")
+
+    stored = vault.list_accounts()[0]
+    assert result.status == QuotaRefreshStatus.UNAVAILABLE
+    assert stored.status == AccountStatus.ACTIVE
+    assert stored.quota_used == 42
+    assert stored.quota_checked_at == checked_at
+
+
+@pytest.mark.anyio
+async def test_successful_quota_refresh_rolls_both_auth_states(tmp_path: Path) -> None:
+    """
+    验证成功保活会把两类更新后认证状态与额度一起保存
+    """
+
+    github_state = _auth_state("user_session", "fake-rolled-github-cookie", ".github.com")
+    opencode_state = _auth_state("opencode_session", "fake-rolled-opencode-cookie", ".opencode.ai")
+    vault = _vault(tmp_path)
+    browser_client = FakeQuotaBrowserClient(
+        [
+            OpenCodeQuotaPageResult(
+                status=OpenCodeQuotaPageStatus.UPDATED,
+                usage_percent=33,
+                github_auth_state=github_state,
+                opencode_auth_state=opencode_state,
+            )
+        ]
+    )
+    service = _quota_service(vault, lambda: browser_client)
+
+    result = await service.refresh_account("quota-account")
+
+    stored = vault.get_account("quota-account")
+    assert result.status == QuotaRefreshStatus.UPDATED
+    assert isinstance(stored, Account)
+    assert stored.github_auth_state == github_state
+    assert stored.opencode_auth_state == opencode_state
+
+
+@pytest.mark.anyio
+async def test_authenticated_dashboard_failure_still_rolls_auth_states(tmp_path: Path) -> None:
+    """
+    验证额度 DOM 暂时不可用时仍保存服务端更新后的认证状态
+    """
+
+    github_state = _auth_state("user_session", "fake-unavailable-github-cookie", ".github.com")
+    opencode_state = _auth_state("opencode_session", "fake-unavailable-opencode-cookie", ".opencode.ai")
+    vault = _vault(tmp_path)
+    browser_client = FakeQuotaBrowserClient(
+        [
+            OpenCodeQuotaPageResult(
+                status=OpenCodeQuotaPageStatus.UNAVAILABLE,
+                github_auth_state=github_state,
+                opencode_auth_state=opencode_state,
+                error_message="OpenCode Go 仪表盘暂时不可用",
+            )
+        ]
+    )
+    service = _quota_service(vault, lambda: browser_client)
+
+    result = await service.refresh_account("quota-account")
+
+    stored = vault.get_account("quota-account")
+    assert result.status == QuotaRefreshStatus.UNAVAILABLE
+    assert isinstance(stored, Account)
+    assert stored.github_auth_state == github_state
+    assert stored.opencode_auth_state == opencode_state
+
+
+@pytest.mark.anyio
 async def test_browser_quota_marks_missing_subscription_invalid(tmp_path: Path) -> None:
     """
     验证未订阅或订阅到期会清除旧额度并把账号标记为失效
@@ -252,6 +406,23 @@ class FakeQuotaCheckService(QuotaCheckService):
         return []
 
 
+class LockedQuotaCheckService(FakeQuotaCheckService):
+    """
+    周期检查锁库测试替身
+    """
+
+    async def refresh_all(self) -> List[QuotaRefreshResult]:
+        """
+        模拟账号库尚未解锁
+
+        :return List: 不会返回
+
+        :raises VaultLockedError: 始终模拟锁库
+        """
+
+        raise VaultLockedError("测试账号库尚未解锁")
+
+
 @pytest.mark.anyio
 async def test_quota_scheduler_starts_once_and_closes_promptly() -> None:
     """
@@ -266,3 +437,16 @@ async def test_quota_scheduler_starts_once_and_closes_promptly() -> None:
     await scheduler.close()
 
     assert service.calls == 1
+
+
+@pytest.mark.anyio
+async def test_quota_scheduler_retries_locked_vault_within_one_minute() -> None:
+    """
+    验证启动时锁库不会延迟整个正常保活周期
+    """
+
+    scheduler = QuotaScheduler(LockedQuotaCheckService(), 3_600)
+
+    delay_seconds = await scheduler._refresh_delay()
+
+    assert delay_seconds == 60

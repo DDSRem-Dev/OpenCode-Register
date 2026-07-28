@@ -7,11 +7,16 @@ from pydantic import SecretStr
 
 from storage.crypto import DecryptionError, FieldCipher
 from storage.db import Database
+from storage.migrations import MIGRATIONS
 from storage.models import (
     AccountCleanupState,
     AccountConfigurationUpdate,
     AccountCreate,
     AutomaticConfigurationSettings,
+    BrowserAuthState,
+    BrowserCookieState,
+    BrowserOriginState,
+    BrowserStorageEntry,
     PendingAccountCreate,
 )
 from storage.repositories import (
@@ -73,7 +78,7 @@ def test_database_applies_migration_once_and_restricts_permissions(tmp_path: Pat
     with sqlite3.connect(database_path) as connection:
         versions = connection.execute("SELECT version FROM schema_migrations").fetchall()
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert versions == [(1,), (2,), (3,), (4,), (5,)]
+    assert versions == [(1,), (2,), (3,), (4,), (5,), (6,)]
     assert {
         "accounts",
         "pool_state",
@@ -84,6 +89,80 @@ def test_database_applies_migration_once_and_restricts_permissions(tmp_path: Pat
         "pending_account_cleanup_operations",
     }.issubset(tables)
     assert os.stat(database_path).st_mode & 0o077 == 0
+
+
+def test_migration_six_upgrades_existing_records_with_empty_auth_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    验证 v5 既有账号升级后新增认证状态保持为空
+    """
+
+    database_path = tmp_path / "upgrade.db"
+    database = Database(database_path)
+    monkeypatch.setattr("storage.db.MIGRATIONS", MIGRATIONS[:5])
+    database.initialize()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO accounts (
+                uuid, github_username, github_email, github_password, github_created_at,
+                opencode_provider_name, opencode_workspace_id, opencode_api_key,
+                email_provider, temp_email, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-account",
+                "legacy-user",
+                "legacy@example.test",
+                b"encrypted-password-placeholder",
+                "2026-01-01T00:00:00+00:00",
+                "opencode-go",
+                "wrk_legacy",
+                b"encrypted-key-placeholder",
+                "temp_mail",
+                "legacy@example.test",
+                "active",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO pending_accounts (
+                uuid, github_username, github_email, github_password, github_created_at,
+                email_provider, temp_email, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-pending",
+                "legacy-pending-user",
+                "legacy-pending@example.test",
+                b"encrypted-password-placeholder",
+                "2026-01-01T00:00:00+00:00",
+                "temp_mail",
+                "legacy-pending@example.test",
+                "pending_setup",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+    monkeypatch.setattr("storage.db.MIGRATIONS", MIGRATIONS)
+
+    database.initialize()
+
+    with sqlite3.connect(database_path) as connection:
+        account_state = connection.execute(
+            "SELECT github_auth_state, opencode_auth_state FROM accounts WHERE uuid = 'legacy-account'"
+        ).fetchone()
+        pending_state = connection.execute(
+            "SELECT github_auth_state, opencode_auth_state FROM pending_accounts WHERE uuid = 'legacy-pending'"
+        ).fetchone()
+        version = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+    assert account_state == (None, None)
+    assert pending_state == (None, None)
+    assert version == (6,)
 
 
 def test_failed_migration_rolls_back_schema_and_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,7 +177,7 @@ def test_failed_migration_rolls_back_schema_and_version(tmp_path: Path, monkeypa
         "storage.db.MIGRATIONS",
         [
             (
-                6,
+                7,
                 "CREATE TABLE partial_migration (id INTEGER PRIMARY KEY); INVALID SQL;",
             )
         ],
@@ -108,7 +187,7 @@ def test_failed_migration_rolls_back_schema_and_version(tmp_path: Path, monkeypa
         database.initialize()
 
     with sqlite3.connect(database_path) as connection:
-        version = connection.execute("SELECT version FROM schema_migrations WHERE version = 6").fetchone()
+        version = connection.execute("SELECT version FROM schema_migrations WHERE version = 7").fetchone()
         partial_table = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'partial_migration'"
         ).fetchone()
@@ -139,6 +218,50 @@ def test_account_repository_encrypts_sensitive_fields_before_sqlite(tmp_path: Pa
     assert b"sk-" not in stored_api_key
     assert stored_password.startswith(b"OCR1")
     assert stored_api_key.startswith(b"OCR1")
+
+
+def test_account_repository_encrypts_browser_auth_state(tmp_path: Path) -> None:
+    """
+    验证浏览器认证状态完整往返且 SQLite 不包含票据明文
+    """
+
+    database_path = tmp_path / "accounts.db"
+    repository = create_repository(database_path)
+    auth_state = BrowserAuthState(
+        cookies=[
+            BrowserCookieState(
+                name="user_session",
+                value=SecretStr("fake-session-cookie-value"),
+                domain="github.com",
+                path="/",
+                expires=1_800_000_000,
+                http_only=True,
+                secure=True,
+                same_site="Lax",
+            )
+        ],
+        origins=[
+            BrowserOriginState(
+                origin="https://github.com",
+                local_storage=[BrowserStorageEntry(name="auth-test", value=SecretStr("fake-local-storage-value"))],
+            )
+        ],
+    )
+    stored = repository.add(
+        create_account().model_copy(update={"github_auth_state": auth_state, "opencode_auth_state": auth_state})
+    )
+
+    assert stored.github_auth_state == auth_state
+    assert stored.opencode_auth_state == auth_state
+    assert "fake-session-cookie-value" not in repr(stored)
+    with sqlite3.connect(database_path) as connection:
+        encrypted_github, encrypted_opencode = connection.execute(
+            "SELECT github_auth_state, opencode_auth_state FROM accounts"
+        ).fetchone()
+    assert b"fake-session-cookie-value" not in encrypted_github
+    assert b"fake-local-storage-value" not in encrypted_opencode
+    assert encrypted_github.startswith(b"OCR1")
+    assert encrypted_opencode.startswith(b"OCR1")
 
 
 def test_account_repository_rejects_duplicate_identity(tmp_path: Path) -> None:

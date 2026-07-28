@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import Awaitable, Callable, List, Optional
+from typing import Awaitable, Callable, List, Optional, Tuple
 
 import pytest
 from pydantic import SecretStr
@@ -23,7 +23,35 @@ from engine.models import (
 )
 from providers.base import EmailProvider
 from providers.errors import EmailProviderResponseError
+from storage.models import BrowserAuthState, BrowserCookieState
 from storage.screenshots import ScreenshotStore, ScreenshotStoreError
+
+
+def fake_auth_state(name: str, value: str, domain: str) -> BrowserAuthState:
+    """
+    创建带单个虚构 Cookie 的流程认证状态
+
+    :param name (str): Cookie 名称
+    :param value (str): 虚构 Cookie 值
+    :param domain (str): Cookie 域
+
+    :return BrowserAuthState: 流程测试认证状态
+    """
+
+    return BrowserAuthState(
+        cookies=[
+            BrowserCookieState(
+                name=name,
+                value=SecretStr(value),
+                domain=domain,
+                path="/",
+                expires=2_000_000_000,
+                http_only=True,
+                secure=True,
+                same_site="Lax",
+            )
+        ]
+    )
 
 
 class FakeEmailProvider(EmailProvider):
@@ -143,7 +171,16 @@ class FakeGitHubRegistrationClient(GitHubRegistrationClient):
         :param results (List): 按调用顺序返回的页面结果
         """
 
-        self.results = results or [GitHubPageResult(status=GitHubPageStatus.COMPLETED)]
+        self.results = results or [
+            GitHubPageResult(
+                status=GitHubPageStatus.COMPLETED,
+                github_auth_state=fake_auth_state(
+                    "user_session",
+                    "fake-flow-github-cookie",
+                    ".github.com",
+                ),
+            )
+        ]
         self.started_email: Optional[str] = None
         self.started_username: Optional[str] = None
         self.started_usernames: List[str] = []
@@ -229,11 +266,31 @@ class FakeOpenCodeAutomationClient(OpenCodeAutomationClient):
                 status=OpenCodePageStatus.PAYMENT_REQUIRED,
                 workspace_id="wrk_test123",
                 manual_reason=ManualInterventionReason.PAYMENT,
+                github_auth_state=fake_auth_state(
+                    "user_session",
+                    "fake-flow-github-cookie-refreshed",
+                    ".github.com",
+                ),
+                opencode_auth_state=fake_auth_state(
+                    "opencode_session",
+                    "fake-flow-opencode-cookie",
+                    ".opencode.ai",
+                ),
             ),
             OpenCodePageResult(
                 status=OpenCodePageStatus.COMPLETED,
                 workspace_id="wrk_test123",
                 api_key=SecretStr("sk-" + "a" * 64),
+                github_auth_state=fake_auth_state(
+                    "user_session",
+                    "fake-flow-github-cookie-final",
+                    ".github.com",
+                ),
+                opencode_auth_state=fake_auth_state(
+                    "opencode_session",
+                    "fake-flow-opencode-cookie-final",
+                    ".opencode.ai",
+                ),
             ),
         ]
         self.submitted_api_key: Optional[str] = None
@@ -285,6 +342,7 @@ def create_test_flow(
     completion_handler: Optional[Callable[[AccountCompletionData], Awaitable[str]]] = None,
     pending_handler: Optional[Callable[[PendingAccountData], Awaitable[str]]] = None,
     screenshot_store: Optional[ScreenshotStore] = None,
+    auth_state_handler: Optional[Callable[[str, BrowserAuthState, BrowserAuthState], Awaitable[None]]] = None,
 ) -> CreateAccountFlow:
     """
     创建带默认 OpenCode 边界的测试流程
@@ -295,6 +353,7 @@ def create_test_flow(
     :param completion_handler (Callable): 可选账号完成边界
     :param pending_handler (Callable): 可选 GitHub 完成持久化边界
     :param screenshot_store (ScreenshotStore): 可选安全截图存储
+    :param auth_state_handler (Callable): 可选未完成账号认证状态更新边界
 
     :return CreateAccountFlow: 测试账号流程
     """
@@ -310,6 +369,7 @@ def create_test_flow(
         completion_handler or complete_account,
         pending_handler=pending_handler,
         screenshot_store=screenshot_store,
+        auth_state_handler=auth_state_handler,
     )
 
 
@@ -382,6 +442,7 @@ async def test_flow_persists_github_account_before_waiting_for_payment() -> None
 
     pending_data: Optional[PendingAccountData] = None
     completion_data: Optional[AccountCompletionData] = None
+    persisted_auth_states: Optional[Tuple[str, BrowserAuthState, BrowserAuthState]] = None
 
     async def persist_pending(data: PendingAccountData) -> str:
         nonlocal pending_data
@@ -393,11 +454,20 @@ async def test_flow_persists_github_account_before_waiting_for_payment() -> None
         completion_data = data
         return "opencode-go"
 
+    async def persist_auth_states(
+        account_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
+    ) -> None:
+        nonlocal persisted_auth_states
+        persisted_auth_states = (account_id, github_auth_state, opencode_auth_state)
+
     flow = create_test_flow(
         [FakeEmailProvider()],
         FakeGitHubRegistrationClient(),
         completion_handler=complete_account,
         pending_handler=persist_pending,
+        auth_state_handler=persist_auth_states,
     )
 
     payment = await flow.start()
@@ -407,8 +477,19 @@ async def test_flow_persists_github_account_before_waiting_for_payment() -> None
     assert payment.session.account_id == "00000000-0000-4000-8000-000000000010"
     assert pending_data is not None
     assert pending_data.github_username == payment.session.github_username
+    assert pending_data.github_auth_state is not None
+    assert persisted_auth_states is not None
+    assert persisted_auth_states[0] == payment.session.account_id
+    assert persisted_auth_states[1].cookies[0].domain == ".github.com"
+    assert persisted_auth_states[2].cookies[0].domain == ".opencode.ai"
     assert completion_data is not None
     assert completion_data.account_id == payment.session.account_id
+    assert completion_data.github_auth_state is not None
+    assert completion_data.opencode_auth_state is not None
+    assert "fake-flow-github-cookie-final" not in repr(completion_data)
+    assert "fake-flow-opencode-cookie-final" not in repr(completion_data)
+    assert "fake-flow-github-cookie" not in completed.session.model_dump_json()
+    assert "fake-flow-opencode-cookie" not in completed.session.model_dump_json()
     assert completed.session.status == FlowStatus.DONE
 
 

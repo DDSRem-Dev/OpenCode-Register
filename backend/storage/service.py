@@ -18,6 +18,7 @@ from storage.models import (
     AccountStatus,
     AccountSummary,
     AutomaticConfigurationSettings,
+    BrowserAuthState,
     PendingAccount,
     PendingAccountCreate,
     QuotaInvalidReason,
@@ -337,6 +338,56 @@ class AccountVaultService:
                 raise VaultLockedError("本地账号库尚未解锁")
             return self._repository.update_pending_status(account_id, status)
 
+    def update_pending_auth_states(
+        self,
+        account_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
+    ) -> PendingAccount:
+        """
+        加密更新未完成账号的浏览器认证状态
+
+        :param account_id (str): 未完成账号稳定 UUID
+        :param github_auth_state (BrowserAuthState): GitHub 浏览器认证状态
+        :param opencode_auth_state (BrowserAuthState): OpenCode 浏览器认证状态
+
+        :return PendingAccount: 更新后的未完成账号
+
+        :raises VaultLockedError: 本地账号库尚未解锁
+        """
+
+        with self._lock:
+            if self._repository is None:
+                raise VaultLockedError("本地账号库尚未解锁")
+            return self._repository.update_pending_auth_states(
+                account_id,
+                github_auth_state,
+                opencode_auth_state,
+            )
+
+    def update_auth_states(
+        self,
+        account_id: str,
+        github_auth_state: BrowserAuthState,
+        opencode_auth_state: BrowserAuthState,
+    ) -> Account:
+        """
+        加密滚动更新完整账号的浏览器认证状态
+
+        :param account_id (str): 账号稳定 UUID
+        :param github_auth_state (BrowserAuthState): GitHub 浏览器认证状态
+        :param opencode_auth_state (BrowserAuthState): OpenCode 浏览器认证状态
+
+        :return Account: 更新后的完整账号
+
+        :raises VaultLockedError: 本地账号库尚未解锁
+        """
+
+        with self._lock:
+            if self._repository is None:
+                raise VaultLockedError("本地账号库尚未解锁")
+            return self._repository.update_auth_states(account_id, github_auth_state, opencode_auth_state)
+
     def update_quota(
         self,
         account_id: str,
@@ -344,6 +395,8 @@ class AccountVaultService:
         quota_used: int,
         quota_updated_at: datetime,
         status: AccountStatus,
+        github_auth_state: Optional[BrowserAuthState] = None,
+        opencode_auth_state: Optional[BrowserAuthState] = None,
     ) -> Account:
         """
         更新账号额度快照和状态
@@ -353,6 +406,8 @@ class AccountVaultService:
         :param quota_used (int): 当前已用额度
         :param quota_updated_at (datetime): 额度更新时间
         :param status (AccountStatus): 派生账号状态
+        :param github_auth_state (BrowserAuthState): 可选滚动 GitHub 认证状态
+        :param opencode_auth_state (BrowserAuthState): 可选滚动 OpenCode 认证状态
 
         :return Account: 更新后的账号记录
 
@@ -362,7 +417,15 @@ class AccountVaultService:
         with self._lock:
             if self._repository is None:
                 raise VaultLockedError("本地账号库尚未解锁")
-            return self._repository.update_quota(account_id, quota_total, quota_used, quota_updated_at, status)
+            return self._repository.update_quota(
+                account_id,
+                quota_total,
+                quota_used,
+                quota_updated_at,
+                status,
+                github_auth_state,
+                opencode_auth_state,
+            )
 
     def update_status(self, account_id: str, status: AccountStatus) -> Account:
         """

@@ -12,14 +12,13 @@ from browser.base import GitHubCleanupClient
 from browser.cloakbrowser_client import CloakBrowserSession
 from browser.models import GitHubCleanupPageResult, GitHubCleanupPageStatus
 from engine.models import ManualInterventionReason
+from storage.models import BrowserAuthState
 
 GITHUB_HOST = "github.com"
-GITHUB_LOGIN_URL = "https://github.com/login"
+GITHUB_HOME_URL = "https://github.com/"
 GITHUB_ADMIN_URL = "https://github.com/settings/admin"
 GITHUB_LOGIN_PATH = "/login"
 GITHUB_ADMIN_PATH = "/settings/admin"
-LOGIN_USERNAME_SELECTOR = "#login_field"
-PASSWORD_SELECTOR = "#password"
 ACTOR_LOGIN_SELECTOR = 'meta[name="user-login"]'
 VISIBLE_CAPTCHA_SELECTORS = "iframe[src*='captcha']:visible, [data-sitekey]:visible, .js-captcha:visible"
 LOGIN_ERROR_SELECTOR = ".flash-error:visible, #js-flash-container .flash:visible"
@@ -54,12 +53,18 @@ class GitHubAccountCleanup(GitHubCleanupClient):
         self._username: Optional[str] = None
         self._password: Optional[SecretStr] = None
 
-    async def start_cleanup(self, username: str, password: SecretStr) -> GitHubCleanupPageResult:
+    async def start_cleanup(
+        self,
+        username: str,
+        password: SecretStr,
+        github_auth_state: BrowserAuthState,
+    ) -> GitHubCleanupPageResult:
         """
-        登录目标 GitHub 账号并完成已确认的删除流程
+        恢复目标 GitHub 会话并完成已确认的删除流程
 
         :param username (str): 待删除 GitHub 用户名
         :param password (SecretStr): 待删除 GitHub 账号密码
+        :param github_auth_state (BrowserAuthState): 已保存 GitHub 浏览器认证状态
 
         :return GitHubCleanupPageResult: 当前清理页面状态
         """
@@ -69,14 +74,10 @@ class GitHubAccountCleanup(GitHubCleanupClient):
         self._username = username
         self._password = password
         try:
+            self._browser_session.restore_auth_states([github_auth_state])
             page = await self._browser_session.page()
-            await page.goto(GITHUB_LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
-            if not self._is_github_page(page) or urlparse(page.url).path != GITHUB_LOGIN_PATH:
-                return self._manual(ManualInterventionReason.UNKNOWN_BLOCK)
-            await page.locator(LOGIN_USERNAME_SELECTOR).fill(username)
-            await page.locator(PASSWORD_SELECTOR).fill(password.get_secret_value())
-            await page.get_by_role("button", name="Sign in", exact=True).click(timeout=15_000)
-            return await self._wait_for_authenticated(page)
+            await page.goto(GITHUB_HOME_URL, wait_until="domcontentloaded", timeout=30_000)
+            return await self._continue_from_restored_session(page)
         except BrowserError:
             return self._error("github_cleanup_browser_failed", "GitHub 删除页面操作失败")
 
@@ -137,6 +138,21 @@ class GitHubAccountCleanup(GitHubCleanupClient):
                 return GitHubCleanupPageResult(status=GitHubCleanupPageStatus.INVALID)
             await asyncio.sleep(0.25)
         return self._manual(ManualInterventionReason.TIMEOUT)
+
+    async def _continue_from_restored_session(self, page: Page) -> GitHubCleanupPageResult:
+        if not self._is_github_page(page):
+            return self._auth_required()
+        if await page.locator(VISIBLE_CAPTCHA_SELECTORS).count() > 0:
+            return self._manual(ManualInterventionReason.CAPTCHA)
+        if TWO_FACTOR_PATH_PATTERN.match(urlparse(page.url).path) is not None:
+            return self._manual(ManualInterventionReason.PHONE_VERIFICATION)
+        actor = await self._actor_login(page)
+        if actor is None:
+            return self._auth_required()
+        username = self._username
+        if username is None or actor.casefold() != username.casefold():
+            return self._error("github_cleanup_identity_mismatch", "当前 GitHub 登录身份与删除目标不一致")
+        return await self._open_admin(page)
 
     async def _open_admin(self, page: Page) -> GitHubCleanupPageResult:
         await page.goto(GITHUB_ADMIN_URL, wait_until="domcontentloaded", timeout=30_000)
@@ -262,6 +278,14 @@ class GitHubAccountCleanup(GitHubCleanupClient):
     @staticmethod
     def _manual(reason: ManualInterventionReason) -> GitHubCleanupPageResult:
         return GitHubCleanupPageResult(status=GitHubCleanupPageStatus.MANUAL_REQUIRED, manual_reason=reason)
+
+    @staticmethod
+    def _auth_required() -> GitHubCleanupPageResult:
+        return GitHubCleanupPageResult(
+            status=GitHubCleanupPageStatus.AUTH_REQUIRED,
+            error_code="github_cleanup_auth_required",
+            error_message="保存的 GitHub 登录状态已失效，需要重新授权",
+        )
 
     @staticmethod
     def _error(code: str, message: str) -> GitHubCleanupPageResult:
