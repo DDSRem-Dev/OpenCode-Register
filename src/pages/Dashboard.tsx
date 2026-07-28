@@ -1,7 +1,11 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import { CircleAlert, Gauge, KeyRound, RefreshCw, UsersRound } from "lucide-react";
 import { AccountRow } from "../components/AccountRow";
 import { AccountTransfer } from "../components/AccountTransfer";
+import { Toast } from "../components/Toast";
+import { interfaceMotion, motionDuration } from "../animations";
 import {
   fetchAccounts,
   fetchVaultStatus,
@@ -38,6 +42,7 @@ export function Dashboard({
   view = "accounts",
   refreshToken = 0,
 }: DashboardProps) {
+  const workspaceRef = useRef<HTMLElement>(null);
   const [state, setState] = useState<DashboardState>({ status: "checking" });
   const [masterPassword, setMasterPassword] = useState("");
   const [masterPasswordConfirmation, setMasterPasswordConfirmation] = useState("");
@@ -61,6 +66,26 @@ export function Dashboard({
   const activeAccountCount = state.status === "ready"
     ? state.accounts.filter((account) => account.status === "active").length
     : 0;
+
+  useGSAP(() => {
+    const duration = motionDuration(interfaceMotion.standard);
+    gsap.fromTo(
+      ".account-summary > div, .unlock-panel, .account-message, .account-table, .account-transfer",
+      { autoAlpha: 0, y: duration === 0 ? 0 : 10 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration,
+        stagger: duration === 0 ? 0 : 0.055,
+        ease: interfaceMotion.ease,
+        clearProps: "all",
+      },
+    );
+  }, {
+    dependencies: [view, state.status, state.status === "ready" ? state.accounts.length : 0],
+    scope: workspaceRef,
+    revertOnUpdate: true,
+  });
 
   const loadAccounts = useCallback(async (signal?: AbortSignal) => {
     const loadGeneration = loadGenerationRef.current + 1;
@@ -186,7 +211,7 @@ export function Dashboard({
   }, [loadAccounts, masterPassword, masterPasswordConfirmation, onVaultStatusChange, state]);
 
   return (
-    <section className="account-workspace" aria-labelledby="accounts-title">
+    <section ref={workspaceRef} className="account-workspace" aria-labelledby="accounts-title">
       <div className="account-heading">
         <div>
           <p className="section-label">{view === "accounts" ? "本地号池" : "加密账号包"}</p>
@@ -230,8 +255,11 @@ export function Dashboard({
         </div>
       )}
 
-      {view === "accounts" && quotaMessage && (
+      {view === "accounts" && quotaMessage && quotaMessage.status !== "success" && (
         <div className={`quota-message ${quotaMessage.status}`} role="status">{quotaMessage.text}</div>
+      )}
+      {view === "accounts" && quotaMessage?.status === "success" && (
+        <Toast message={quotaMessage.text} onDismiss={() => setQuotaMessage(null)} />
       )}
 
       {view === "accounts" && allCheckedAccountsNearLimit && (

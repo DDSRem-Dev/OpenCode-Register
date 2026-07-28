@@ -36,7 +36,7 @@ from scheduler.quota_scheduler import QuotaScheduler
 from storage.screenshots import ScreenshotStore
 from storage.service import AccountVaultService
 
-APP_VERSION = "0.0.8"
+APP_VERSION = "0.0.9"
 
 
 def create_app(

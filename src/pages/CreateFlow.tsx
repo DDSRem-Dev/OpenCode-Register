@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import { Check, Circle, CircleCheck, LoaderCircle, Pause, Play, RefreshCw } from "lucide-react";
 import { ManualIntervention } from "../components/ManualIntervention";
+import { interfaceMotion, motionDuration } from "../animations";
 import {
   cancelFlow,
   fetchFlow,
@@ -51,6 +54,7 @@ const flowStepByStatus: Record<FlowStatus, number> = {
 };
 
 export function CreateFlow({ isBackendConnected, isVaultUnlocked, onAccountCreated }: CreateFlowProps) {
+  const workspaceRef = useRef<HTMLElement>(null);
   const [session, setSession] = useState<FlowSession | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,8 +209,40 @@ export function CreateFlow({ isBackendConnected, isVaultUnlocked, onAccountCreat
   const canPause = session && pausableStatuses.includes(session.status);
   const currentStep = session ? flowStepByStatus[session.status] : 0;
 
+  useGSAP(() => {
+    const duration = motionDuration(interfaceMotion.standard);
+    const timeline = gsap.timeline({ defaults: { duration, ease: interfaceMotion.ease } });
+    const activeSteps = gsap.utils.toArray<HTMLElement>(".flow-steps li.current, .flow-steps li.complete:last-of-type");
+    const notices = gsap.utils.toArray<HTMLElement>(".manual-panel, .success-banner, .flow-main > .error-banner");
+    timeline.fromTo(
+      ".flow-status",
+      { autoAlpha: 0, y: duration === 0 ? 0 : 10 },
+      { autoAlpha: 1, y: 0, clearProps: "all" },
+    );
+    if (activeSteps.length > 0) {
+      timeline.fromTo(
+        activeSteps,
+        { scale: duration === 0 ? 1 : 0.96 },
+        { scale: 1, duration: motionDuration(interfaceMotion.quick), clearProps: "transform" },
+        "<",
+      );
+    }
+    if (notices.length > 0) {
+      timeline.fromTo(
+        notices,
+        { autoAlpha: 0, y: duration === 0 ? 0 : 8 },
+        { autoAlpha: 1, y: 0, clearProps: "all" },
+        duration === 0 ? "<" : "<0.08",
+      );
+    }
+  }, {
+    dependencies: [session?.status, session?.manual_intervention?.reason, error],
+    scope: workspaceRef,
+    revertOnUpdate: true,
+  });
+
   return (
-    <section className="flow-workspace" aria-labelledby="flow-title">
+    <section ref={workspaceRef} className="flow-workspace" aria-labelledby="flow-title">
       <div className="flow-heading">
         <div>
           <p className="section-label">自动化任务</p>

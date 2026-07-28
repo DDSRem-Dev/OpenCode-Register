@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import {
   ArchiveRestore,
   CircleAlert,
@@ -19,6 +21,9 @@ import {
 import { CreateFlow } from "./pages/CreateFlow";
 import { Dashboard } from "./pages/Dashboard";
 import { Settings } from "./pages/Settings";
+import { interfaceMotion, motionDuration } from "./animations";
+
+gsap.registerPlugin(useGSAP);
 
 type ConnectionState = "connecting" | "initializing" | "connected" | "offline";
 type WorkspaceView = "accounts" | "create" | "transfer" | "settings";
@@ -42,6 +47,7 @@ export default function App() {
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const [accountRefreshToken, setAccountRefreshToken] = useState(0);
   const connectionAttemptRef = useRef(0);
+  const shellRef = useRef<HTMLDivElement>(null);
 
   const connect = useCallback(async () => {
     const connectionAttempt = connectionAttemptRef.current + 1;
@@ -109,6 +115,42 @@ export default function App() {
     };
   }, [connect]);
 
+  useGSAP(() => {
+    const duration = motionDuration(interfaceMotion.entrance);
+    const timeline = gsap.timeline({ defaults: { duration, ease: interfaceMotion.ease } });
+    timeline
+      .fromTo(".app-brand", { autoAlpha: 0, x: -12 }, { autoAlpha: 1, x: 0, clearProps: "all" })
+      .fromTo(
+        ".sidebar-nav button",
+        { autoAlpha: 0, x: -10 },
+        { autoAlpha: 1, x: 0, stagger: duration === 0 ? 0 : 0.045, clearProps: "all" },
+        duration === 0 ? "<" : "<0.08",
+      )
+      .fromTo(
+        ".workspace-toolbar",
+        { autoAlpha: 0, y: -10 },
+        { autoAlpha: 1, y: 0, clearProps: "all" },
+        "<",
+      );
+  }, { scope: shellRef });
+
+  useGSAP(() => {
+    const activeWorkspace = shellRef.current?.querySelector<HTMLElement>(".workspace-view:not([hidden])");
+    const activeNavigationIcon = shellRef.current?.querySelector<SVGElement>(".sidebar-nav button.active svg");
+    if (!activeWorkspace || !activeNavigationIcon) return;
+    const duration = motionDuration(interfaceMotion.standard);
+    gsap.fromTo(
+      activeWorkspace,
+      { autoAlpha: 0, y: duration === 0 ? 0 : 12 },
+      { autoAlpha: 1, y: 0, duration, ease: interfaceMotion.ease, clearProps: "all" },
+    );
+    gsap.fromTo(
+      activeNavigationIcon,
+      { scale: duration === 0 ? 1 : 0.98 },
+      { scale: 1, duration: motionDuration(interfaceMotion.quick), ease: "power2.out", clearProps: "transform" },
+    );
+  }, { dependencies: [activeView], scope: shellRef, revertOnUpdate: true });
+
   const statusLabel = {
     connecting: "正在连接",
     initializing: "正在初始化浏览器",
@@ -119,7 +161,7 @@ export default function App() {
   const isMacOs = isTauriRuntime() && navigator.userAgent.includes("Macintosh");
 
   return (
-    <div className={`desktop-shell${isMacOs ? " macos" : ""}`}>
+    <div ref={shellRef} className={`desktop-shell${isMacOs ? " macos" : ""}`}>
       {isMacOs && <div className="window-drag-region" data-tauri-drag-region />}
       <aside className="sidebar">
         <div className="app-brand">

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import { exportAccounts, importAccounts } from "../services/api";
+import { Toast } from "./Toast";
 
 type AccountTransferProps = {
   onImported: () => void;
@@ -9,6 +10,7 @@ type AccountTransferProps = {
 type TransferMessage = { kind: "success" | "error"; text: string } | null;
 
 const maxBundleSize = 10 * 1024 * 1024;
+const SUCCESS_MESSAGE_DURATION_MS = 4000;
 
 export function AccountTransfer({ onImported }: AccountTransferProps) {
   const [exportPassword, setExportPassword] = useState("");
@@ -21,6 +23,12 @@ export function AccountTransfer({ onImported }: AccountTransferProps) {
   const operationControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => operationControllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (message?.kind !== "success") return undefined;
+    const timeout = window.setTimeout(() => setMessage(null), SUCCESS_MESSAGE_DURATION_MS);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
 
   const handleExport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -150,11 +158,8 @@ export function AccountTransfer({ onImported }: AccountTransferProps) {
         </button>
       </form>
 
-      {message && (
-        <div className={`transfer-message ${message.kind}`} role={message.kind === "error" ? "alert" : "status"}>
-          {message.text}
-        </div>
-      )}
+      {message?.kind === "error" && <div className="transfer-message" role="alert">{message.text}</div>}
+      {message?.kind === "success" && <Toast message={message.text} onDismiss={() => setMessage(null)} />}
     </div>
   );
 }

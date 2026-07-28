@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import { CircleAlert, RefreshCw, Settings2, Wrench } from "lucide-react";
 import {
   applyAutomaticConfiguration,
@@ -7,6 +9,8 @@ import {
   updateAutomaticConfiguration,
   type AutomaticConfiguration,
 } from "../services/api";
+import { interfaceMotion, motionDuration } from "../animations";
+import { Toast } from "../components/Toast";
 
 type SettingsProps = {
   isBackendConnected: boolean;
@@ -24,6 +28,7 @@ type Feedback = { status: "success" | "error"; text: string };
 const SUCCESS_MESSAGE_DURATION_MS = 4000;
 
 export function Settings({ isBackendConnected, isVaultUnlocked, onConfigurationApplied }: SettingsProps) {
+  const workspaceRef = useRef<HTMLElement>(null);
   const [state, setState] = useState<SettingsState>({ status: "loading" });
   const [operation, setOperation] = useState<"save" | "apply" | "repair" | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -135,8 +140,24 @@ export function Settings({ isBackendConnected, isVaultUnlocked, onConfigurationA
     ? Math.max(configuration.opencodePendingCount, configuration.omoPendingCount)
     : 0;
 
+  useGSAP(() => {
+    const duration = motionDuration(interfaceMotion.standard);
+    gsap.fromTo(
+      ".settings-panel > *, .account-message, .settings-workspace > .error-banner",
+      { autoAlpha: 0, y: duration === 0 ? 0 : 8 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration,
+        stagger: duration === 0 ? 0 : 0.05,
+        ease: interfaceMotion.ease,
+        clearProps: "all",
+      },
+    );
+  }, { dependencies: [state.status, feedback?.text], scope: workspaceRef, revertOnUpdate: true });
+
   return (
-    <section className="settings-workspace" aria-labelledby="settings-title">
+    <section ref={workspaceRef} className="settings-workspace" aria-labelledby="settings-title">
       <div className="settings-heading">
         <div>
           <p className="section-label">本地集成</p>
@@ -221,7 +242,8 @@ export function Settings({ isBackendConnected, isVaultUnlocked, onConfigurationA
         </div>
       )}
 
-      {feedback && <div className={feedback.status === "error" ? "error-banner" : "success-banner"} role="status">{feedback.text}</div>}
+      {feedback?.status === "error" && <div className="error-banner" role="alert">{feedback.text}</div>}
+      {feedback?.status === "success" && <Toast message={feedback.text} onDismiss={() => setFeedback(null)} />}
     </section>
   );
 }

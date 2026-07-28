@@ -1,4 +1,6 @@
 import { FormEvent, useEffect, useId, useRef, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import { CircleOff, Copy, RefreshCw, Trash2, UserRound, X } from "lucide-react";
 import {
   cancelAccountCleanup,
@@ -11,6 +13,8 @@ import {
   type AccountStatus,
   type AccountSummary,
 } from "../services/api";
+import { interfaceMotion, motionDuration } from "../animations";
+import { Toast } from "./Toast";
 
 type AccountRowProps = {
   account: AccountSummary;
@@ -44,11 +48,28 @@ const invalidReasonLabels = {
 const SUCCESS_MESSAGE_DURATION_MS = 4000;
 
 export function AccountRow({ account, onChanged }: AccountRowProps) {
+  const dialogBackdropRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const dialogTitleId = useId();
   const requestRef = useRef<AbortController | null>(null);
   const [operation, setOperation] = useState<"copy" | "quota" | "exhausted" | "cleanup" | null>(null);
   const [message, setMessage] = useState<AccountMessage | null>(null);
   const [cleanupDialog, setCleanupDialog] = useState<CleanupDialogState>({ status: "closed" });
+
+  useGSAP(() => {
+    if (cleanupDialog.status === "closed") return;
+    if (!dialogBackdropRef.current || !dialogRef.current) return;
+    const duration = motionDuration(interfaceMotion.standard);
+    const timeline = gsap.timeline({ defaults: { duration, ease: interfaceMotion.ease } });
+    timeline
+      .fromTo(dialogBackdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1 })
+      .fromTo(
+        dialogRef.current,
+        { autoAlpha: 0, y: duration === 0 ? 0 : 18, scale: duration === 0 ? 1 : 0.985 },
+        { autoAlpha: 1, y: 0, scale: 1, clearProps: "all" },
+        duration === 0 ? "<" : "<0.04",
+      );
+  }, { dependencies: [cleanupDialog.status], scope: dialogBackdropRef, revertOnUpdate: true });
 
   useEffect(() => () => {
     requestRef.current?.abort();
@@ -269,12 +290,14 @@ export function AccountRow({ account, onChanged }: AccountRowProps) {
             <Trash2 size={15} />
           </button>
         </div>
-        {message && <div className="account-feedback" role="status">{message.text}</div>}
+        {message && !message.isTransient && <div className="account-feedback" role="status">{message.text}</div>}
       </article>
 
+      {message?.isTransient && <Toast message={message.text} onDismiss={() => setMessage(null)} />}
+
       {cleanupDialog.status !== "closed" && (
-        <div className="dialog-backdrop" role="presentation">
-          <section className="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby={dialogTitleId}>
+        <div ref={dialogBackdropRef} className="dialog-backdrop" role="presentation">
+          <section ref={dialogRef} className="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby={dialogTitleId}>
             <div className="dialog-heading">
               <h3 id={dialogTitleId}>删除 GitHub 账号</h3>
               <button
