@@ -31,7 +31,7 @@ vi.mock("./pages/Settings", () => ({
 const health: HealthResponse = {
   status: "ok",
   service: "opencode-register-backend",
-  version: "0.0.8",
+  version: "0.0.9",
   storage_mode: "sandbox",
   browser_status: "ready",
 };
@@ -53,7 +53,7 @@ describe("App", () => {
     expect(screen.queryByText("本地服务")).not.toBeInTheDocument();
     expect(screen.queryByText("opencode-register-backend")).not.toBeInTheDocument();
     expect(serviceMocks.configureBackendPort).toHaveBeenCalledWith(17891);
-    expect(screen.getByLabelText("软件版本 0.0.8")).toHaveTextContent("v0.0.8");
+    expect(screen.getByLabelText("软件版本 0.0.9")).toHaveTextContent("v0.0.9");
     expect(screen.getByText("Dashboard connected")).toBeInTheDocument();
     expect(screen.getByText("Flow connected")).toBeInTheDocument();
   });
